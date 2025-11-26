@@ -60,16 +60,23 @@ def score_mtis(aligner, dset):
             raise RuntimeError()
     return ([1]*len(scores_pos) + [0]*len(scores_neg), scores_pos + scores_neg)
 
-def get_alignments(aligner, dset, revcomp_gene=True):
+def get_alignments(aligner, dset, revcomp_gene=True,
+                   check_uniqueness = False):
     alignments = []
+    numbers_of_optimals = []
     for i, l in dset.iterrows():
         G = SeqRecord(Seq(l['gene']), id='gene', name='gene', description='gene')
         mR = SeqRecord(Seq(l['noncodingRNA']), id='miRNA', name='miRNA')
         if revcomp_gene: G = G.reverse_complement()
         G.name = G.id = 'gene'
-        a = next(aligner.align(mR, G))
-        alignments.append(a)
-    return alignments
+        aln = aligner.align(mR, G)
+        if check_uniqueness:
+            numbers_of_optimals.append(len(aln))
+        alignments.append(next(aln))
+    if check_uniqueness:
+        return (alignments, numbers_of_optimals)
+    else:
+        return alignments
 
 def create_fresh_aligner(match=5, mismatch=-4, gapopen=-6, gapextend=None):
     aligner = PairwiseAligner()
@@ -214,6 +221,28 @@ def count_substitutions_per_miR_site(alignment_list):
                 positional_substitutions[rowid, colid, mr_crd] += 1
     return positional_substitutions
 
+def count_substitutions_per_gene_site(alignment_list):
+    global NUCL_DICT
+    positional_substitutions = np.zeros((4, 5, 50))
+    for a in alignment_list:        
+        for aln_crd, gene_crd in enumerate(a.indices[1]):
+            if gene_crd != -1:
+                rowid = NUCL_DICT[a[1,aln_crd]]
+                colid = NUCL_DICT[a[0,aln_crd]]
+                positional_substitutions[rowid, colid, gene_crd] += 1
+    return positional_substitutions
+
+def get_nt_count_matrix(alignment_list):
+    global NUCL_DICT
+    nt_counts = np.zeros((50, 22))
+    for a in alignment_list:        
+        for aln_crd in range(a.shape[1]):
+            miR_crd = a.indices[0,aln_crd]
+            gene_crd = a.indices[1,aln_crd]
+            if miR_crd != -1 and gene_crd != -1:
+                nt_counts[gene_crd, miR_crd] += 1
+    return nt_counts
+            
 def get_nucleotide_correlations(alignment_list):
     from scipy.stats import pearsonr
     presence_matrix = np.zeros((len(alignment_list), 22))
