@@ -153,5 +153,41 @@ def encode_posloc_fullM(alignment_list, index):
     X = pd.DataFrame(X, columns = positional_logreg_columns, index=index)
     return X
 
+def encode_posloc_MGG(posloc_alignments):
+    """
+    Returns a tuple of Numpy arrays M_counts, G_miR_counts, G_gene_counts.
+    The arrays encode alignments from the list.
+    The first dimention of each array corresponds to the index in the
+    alignment_list.
+
+    Memory-wise it's inefficient. 
+    """
+    M_counts = np.zeros((len(posloc_alignments), 4, 4, 22))
+    G_miR_counts = np.zeros((len(posloc_alignments), 21))
+    G_gene_counts = np.zeros((len(posloc_alignments), 22))
+    for rowid, aln in enumerate(posloc_alignments):
+        s, aligned_miR, aligned_mR, crd_miR, crd_mR  = aln
+        last_mir_crd = -1 # last seen crd before gapped region in miR
+        mir_gap_count = 0 # length of the current gapped region in miR
+        for aln_crd, mir_crd in enumerate(crd_miR):
+            if mir_crd != -1: # not a gap in miR
+                if last_mir_crd > -1:  # we're inside the alignment
+                    G_miR_counts[rowid, last_mir_crd] = mir_gap_count
+                last_mir_crd = mir_crd
+                mir_gap_count = 0
+                nt1 = aligned_miR[aln_crd]
+                nt2 = aligned_mR[aln_crd]
+                assert nt1 != '-'
+                if nt2 == '-':
+                    G_gene_counts[rowid, mir_crd] += 1
+                else:
+                    nt1id = NUCL_DICT[nt1]
+                    nt2id = NUCL_DICT[nt2]
+                    M_counts[rowid, nt1id, nt2id, mir_crd] += 1
+            else:
+                mir_gap_count += 1
+    return (M_counts,  G_miR_counts, G_gene_counts)
+
+
 def encode_posloc_positionalgaps(alignment_list):
     pass
