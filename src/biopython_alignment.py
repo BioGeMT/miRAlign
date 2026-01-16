@@ -210,15 +210,17 @@ def aligner_prc(aligner, dset, title):
     _ = display.ax_.set_title(title)
     print('Average precision score:', score_aligner(aligner, dset))
 
-def count_substitutions_per_miR_site(alignment_list):
+def count_substitutions_per_miR_site(alignment_list, weights=None):
     global NUCL_DICT
     positional_substitutions = np.zeros((4, 5, 22))
-    for a in alignment_list:        
+    if weights is None:
+        weights = [1]*len(alignment_list)
+    for a, w in zip(alignment_list, weights):        
         for aln_crd, mr_crd in enumerate(a.indices[0]):
             if mr_crd != -1:
                 rowid = NUCL_DICT[a[0,aln_crd]]
                 colid = NUCL_DICT[a[1,aln_crd]]
-                positional_substitutions[rowid, colid, mr_crd] += 1
+                positional_substitutions[rowid, colid, mr_crd] += w
     return positional_substitutions
 
 def count_substitutions_per_gene_site(alignment_list):
@@ -254,6 +256,25 @@ def get_nucleotide_correlations(alignment_list):
     corr_matrix = np.corrcoef(presence_matrix.T)
     return corr_matrix    
 
+def get_miR_gap_counts(alignment_list):
+    """
+    Returns a vector counting the number of gaps in miRNAs
+    after each nucleotide
+    """  
+    gaps_in_miR = np.zeros(22)
+    for a in alignment_list:
+        # miRNA gaps
+        in_gap = False
+        last_crd = -1
+        for aln_crd, miR_crd in enumerate(a.indices[0]):
+            if miR_crd == -1:
+                if not in_gap:
+                    gaps_in_miR[last_crd] += 1
+                in_gap = True
+            else:
+                in_gap = False
+                last_crd = miR_crd
+    return gaps_in_miR
 
 
 
