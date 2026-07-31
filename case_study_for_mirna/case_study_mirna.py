@@ -273,6 +273,25 @@ def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split,
         return {"summary": row, "errors": [row], "metrics": [], "pr_points": [], "roc_points": [], "trajectories": []}
 
 
+def evaluate_existing_model(config: dict, model: dict, inputs_by_split: dict, out_dir: str | Path, summary: dict | None = None) -> dict:
+    out_dir = Path(out_dir)
+    row = {**config, "status": "ok", "error": ""}
+    if summary:
+        row.update({key: value for key, value in summary.items() if key not in row})
+    updates, metric_rows, pr_rows, roc_rows = evaluate_model(config, model, inputs_by_split, out_dir)
+    row.update(updates)
+    write_rows(out_dir / "summary.csv", [row])
+    write_rows(out_dir / "metrics.csv", metric_rows)
+    write_rows(out_dir / "pr_points.csv", pr_rows)
+    write_rows(out_dir / "roc_points.csv", roc_rows)
+    return {
+        "summary": row,
+        "metrics": metric_rows,
+        "pr_points": pr_rows,
+        "roc_points": roc_rows,
+    }
+
+
 def load_trained_model(path: str | Path) -> dict:
     with Path(path).open("rb") as handle:
         payload = pickle.load(handle)
@@ -302,21 +321,15 @@ def main():
     if args.evaluate_only:
         payload = load_trained_model(args.trained_model)
         config = {**payload.get("config", {}), "config": f"evaluate_{Path(args.trained_model).stem}", "max_iter": 0, "num_threads": args.num_threads, "evaluation_only": True}
-        row = {**payload.get("summary", {}), **config, "status": "ok", "error": ""}
-        updates, metric_rows, pr_rows, roc_rows = evaluate_model(config, payload["model"], evaluation_inputs, run_dir)
-        row.update(updates)
-        write_rows(run_dir / "summary.csv", [row])
-        write_rows(run_dir / "metrics.csv", metric_rows)
-        write_rows(run_dir / "pr_points.csv", pr_rows)
-        write_rows(run_dir / "roc_points.csv", roc_rows)
-        write_json(run_dir / "best_grid_model" / "selected_summary.json", {"selected_from": "trained_model", "summary": row})
+        evaluation = evaluate_existing_model(config, payload["model"], evaluation_inputs, run_dir, payload.get("summary", {}))
+        write_json(run_dir / "best_grid_model" / "selected_summary.json", {"selected_from": "trained_model", "summary": evaluation["summary"]})
         print(f"Wrote {run_dir}")
         return
 
     fit_inputs = prepare_inputs(fit_frame)
     validation_inputs = prepare_inputs(validation_frame)
     train_inputs = prepare_inputs(train_frame)
-    inputs_by_split = {} if args.skip_evaluation else {"fit": fit_inputs, "validation": validation_inputs, **evaluation_inputs}
+    grid_inputs_by_split = {} if args.skip_evaluation else {"fit": fit_inputs, "validation": validation_inputs}
     grid = list(
         product(
             csv_values(args.aligners),
@@ -335,7 +348,7 @@ def main():
 
     summary_rows, error_rows, metric_rows, pr_rows, roc_rows, trajectory_rows = [], [], [], [], [], []
     for index, config in enumerate(configs, start=1):
-        result = run_configuration(index, len(configs), config, fit_inputs, inputs_by_split, run_dir, args.skip_evaluation)
+        result = run_configuration(index, len(configs), config, fit_inputs, grid_inputs_by_split, run_dir, args.skip_evaluation)
         summary_rows.append(result["summary"])
         error_rows.extend(result["errors"])
         metric_rows.extend(result["metrics"])
@@ -348,6 +361,17 @@ def main():
         best = ranked[0]
         copy_artifact_dir(best.get("model_artifact_dir", ""), run_dir / "best_grid_model")
         write_json(run_dir / "best_grid_model" / "selected_summary.json", {"selected_from": "grid", "summary": best})
+        if not args.skip_evaluation and evaluation_inputs:
+            payload = load_trained_model(run_dir / "best_grid_model" / "model.pkl")
+            best_eval_inputs = {"fit": fit_inputs, "validation": validation_inputs, **evaluation_inputs}
+            best_evaluation = evaluate_existing_model(
+                best,
+                payload["model"],
+                best_eval_inputs,
+                run_dir / "best_grid_model" / "evaluation",
+                best,
+            )
+            write_json(run_dir / "best_grid_model" / "selected_summary.json", {"selected_from": "grid", "summary": best_evaluation["summary"]})
     if ranked and args.final_max_iter > 0 and not args.skip_evaluation:
         final_config = {key: ranked[0][key] for key in CONFIG_KEYS}
         final_config.update({"config_index": 0, "config": f"final_refit_{ranked[0]['config']}", "max_iter": args.final_max_iter})

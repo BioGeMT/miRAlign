@@ -24,6 +24,10 @@ sampling. Configurations are ranked by validation AUPRC. The selected
 configuration is then refit on the full training split and evaluated on the
 requested held-out splits.
 
+To keep the grid search tractable, each grid configuration is scored only on
+the fit and validation partitions. Held-out miRBench evaluation splits are
+scored only for the selected grid model and for the final refit model.
+
 miRAlign initializes its position-specific substitution matrix and gap vectors
 from the Hejret/DiscrimAlign simple-alignment baseline:
 
@@ -92,16 +96,26 @@ The workflow writes:
 
 ```text
 results/case_study_for_mirna/<dataset>_<run-tag>/
-  summary.csv
-  metrics.csv
-  pr_points.csv
-  roc_points.csv
+  summary.csv                 grid summaries with fit/validation metrics
+  metrics.csv                 grid fit/validation metrics
+  pr_points.csv               grid fit/validation precision-recall curves
+  roc_points.csv              grid fit/validation ROC curves
   trajectories.csv
   errors.csv
   best_grid_model/
+    evaluation/
+      summary.csv             selected grid model held-out metrics
+      metrics.csv
+      pr_points.csv
+      roc_points.csv
     model.pkl
     model_parameters.json
     selected_summary.json
+  final_refit/
+    summary.csv               final refit train/held-out metrics
+    metrics.csv
+    pr_points.csv
+    roc_points.csv
 ```
 
 ## Run the workflow

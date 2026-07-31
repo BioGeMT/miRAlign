@@ -1,6 +1,8 @@
 import numpy as np
+import pandas as pd
 
 from case_study_for_mirna.modeling import label_prior_from_name
+from case_study_for_mirna.case_study_mirna import evaluate_existing_model
 from src.miralign import miRAlign
 from src.optimization_functions import (
     BASELINE_ALPHA,
@@ -105,3 +107,25 @@ def test_case_study_label_prior_names():
     assert label_prior_from_name("symmetric_95_5")[0, 0] == 950
     assert label_prior_from_name("symmetric_90_10")[0, 1] == 100
     assert label_prior_from_name("symmetric_80_20")[1, 0] == 200
+
+
+def test_evaluate_existing_model_writes_requested_splits(tmp_path):
+    params = baseline_parameters()
+    model = {
+        "aligner": pos_aware_align_local,
+        "aligner_name": "local",
+        "M": params["M"],
+        "G_miR": params["G_miR"],
+        "G_gene": params["G_gene"],
+        "alpha": params["alpha"],
+    }
+    config = {"config": "baseline", "num_threads": 1}
+    inputs = {
+        "fit": (["A" * 22, "C" * 22], ["A" * 30, "T" * 30], [1, 0]),
+        "heldout": (["A" * 22, "C" * 22], ["A" * 30, "T" * 30], [1, 0]),
+    }
+
+    evaluate_existing_model(config, model, inputs, tmp_path)
+
+    metrics = pd.read_csv(tmp_path / "metrics.csv")
+    assert set(metrics["split"]) == {"fit", "heldout"}
