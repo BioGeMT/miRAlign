@@ -32,7 +32,7 @@ def run_case(train_family: str, run_tag: str) -> None:
         "local,glocal",
         "--step-scales",
         STEP_SCALES,
-        "--burnins",
+        "--step-decay-burnins",
         "300",
         "--prior-precisions",
         "0,1",
@@ -63,4 +63,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

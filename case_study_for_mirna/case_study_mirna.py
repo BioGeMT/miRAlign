@@ -106,7 +106,13 @@ def parse_args():
     parser.add_argument("--aligners", default="local,glocal")
     parser.add_argument("--step-scales", default="0.00001,0.000012,0.00002")
     parser.add_argument("--step-power", type=float, default=0.5)
-    parser.add_argument("--burnins", default="300")
+    parser.add_argument(
+        "--step-decay-burnins",
+        "--burnins",
+        dest="step_decay_burnins",
+        default="300",
+        help="Comma-separated iteration counts before learning-rate decay starts.",
+    )
     parser.add_argument("--prior-precisions", default="0,1")
     parser.add_argument("--label-priors", default="none,symmetric_90_10")
     parser.add_argument("--class-weights", default="none,balanced,pos2")
@@ -306,7 +312,7 @@ def main():
         product(
             csv_values(args.aligners),
             [float(value) for value in csv_values(args.step_scales)],
-            [int(value) for value in csv_values(args.burnins)],
+            [int(value) for value in csv_values(args.step_decay_burnins)],
             [float(value) for value in csv_values(args.prior_precisions)],
             csv_values(args.label_priors),
             csv_values(args.class_weights),

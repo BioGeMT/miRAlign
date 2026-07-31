@@ -37,6 +37,18 @@ alpha = -5.226262
 When prior regularization is enabled, the same baseline should be used as the
 default prior for `M`, `G_miR`, and `G_gene`.
 
+`prior_precision` controls how strongly the fitted position-specific parameters
+are pulled back toward that baseline. `0` means no prior regularization. Larger
+values penalize deviations from the baseline more strongly, which can reduce
+overfitting but may limit how much miRAlign adapts to the training data.
+
+`step_decay_burnin` controls the learning-rate schedule. miRAlign keeps the
+initial `step_scale` constant through this many iterations, then decays it as
+`step_scale / (iteration - step_decay_burnin) ** step_power`. With the default
+grid-search setting of 100 iterations and `step_decay_burnin=300`, grid runs use
+a constant step size; the 1000-iteration final refit starts decaying after
+iteration 300.
+
 ## Planned grid
 
 The initial practical grid should stay small because miRAlign learns
@@ -45,7 +57,7 @@ position-specific parameters:
 ```text
 aligner: local, glocal
 step_scale: 0.00001, 0.000012, 0.00002
-burnin: 300
+step_decay_burnin: 300
 prior_precision: 0, 1
 label_prior: none, symmetric_90_10
 class_weight: none, balanced, pos2
@@ -86,7 +98,7 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
   --aligners local,glocal \
   --step-scales 0.00001,0.000012,0.00002 \
-  --burnins 300 \
+  --step-decay-burnins 300 \
   --prior-precisions 0,1 \
   --label-priors none,symmetric_90_10 \
   --class-weights none,balanced,pos2 \
@@ -104,7 +116,7 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
   --aligners local,glocal \
   --step-scales 0.00001,0.000012,0.00002 \
-  --burnins 300 \
+  --step-decay-burnins 300 \
   --prior-precisions 0,1 \
   --label-priors none,symmetric_90_10 \
   --class-weights none,balanced,pos2 \
@@ -126,7 +138,7 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --eval-splits hejret_test \
   --aligners local \
   --step-scales 0.00001 \
-  --burnins 300 \
+  --step-decay-burnins 300 \
   --prior-precisions 0 \
   --label-priors none \
   --class-weights none \
