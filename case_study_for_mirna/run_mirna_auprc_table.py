@@ -4,7 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-THREADS = 65
+CONFIG_WORKERS = 4
+THREADS = 16
 STEP_SCALES = "0.00001,0.000012,0.00005,0.0001,0.0005"
 MAX_ITERS = "100"
 FINAL_MAX_ITER = "500"
@@ -46,6 +47,8 @@ def run_case(train_family: str, run_tag: str) -> None:
         FINAL_MAX_ITER,
         "--num-threads",
         str(THREADS),
+        "--config-workers",
+        str(CONFIG_WORKERS),
         "--results-dir",
         str(RESULTS_DIR),
         "--run-tag",

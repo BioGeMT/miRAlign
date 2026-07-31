@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from Bio.Seq import Seq
+from joblib import Parallel, delayed
 from sklearn.model_selection import train_test_split
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -128,6 +129,7 @@ def parse_args():
     parser.add_argument("--max-iters", default="100")
     parser.add_argument("--final-max-iter", type=int, default=500)
     parser.add_argument("--num-threads", type=int, default=1)
+    parser.add_argument("--config-workers", type=int, default=1, help="Number of grid configurations to fit concurrently.")
     parser.add_argument("--limit-configs", type=int, default=0)
     parser.add_argument("--trained-model", default="", help="Path to a saved model.pkl artifact for evaluation-only use.")
     parser.add_argument("--evaluate-only", action="store_true")
@@ -347,8 +349,17 @@ def main():
     print(f"Running {len(configs)} configurations...", flush=True)
 
     summary_rows, error_rows, metric_rows, pr_rows, roc_rows, trajectory_rows = [], [], [], [], [], []
-    for index, config in enumerate(configs, start=1):
-        result = run_configuration(index, len(configs), config, fit_inputs, grid_inputs_by_split, run_dir, args.skip_evaluation)
+    if args.config_workers == 1:
+        results = [
+            run_configuration(index, len(configs), config, fit_inputs, grid_inputs_by_split, run_dir, args.skip_evaluation)
+            for index, config in enumerate(configs, start=1)
+        ]
+    else:
+        results = Parallel(n_jobs=args.config_workers, return_as="list")(
+            delayed(run_configuration)(index, len(configs), config, fit_inputs, grid_inputs_by_split, run_dir, args.skip_evaluation)
+            for index, config in enumerate(configs, start=1)
+        )
+    for result in results:
         summary_rows.append(result["summary"])
         error_rows.extend(result["errors"])
         metric_rows.extend(result["metrics"])

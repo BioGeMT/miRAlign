@@ -128,6 +128,15 @@ uv run python case_study_for_mirna/run_mirna_auprc_table.py
 
 The runner executes the following full runs.
 
+`--config-workers` controls how many grid configurations are fit at the same
+time. `--num-threads` controls pair-alignment workers inside each configuration.
+Avoid multiplying both too aggressively. On a roughly 65-core machine, a
+reasonable starting point is:
+
+```text
+--config-workers 4 --num-threads 16
+```
+
 ### Hejret-trained run
 
 ```bash
@@ -142,7 +151,8 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --class-weights none,balanced,pos2 \
   --max-iters 100 \
   --final-max-iter 500 \
-  --num-threads 65 \
+  --num-threads 16 \
+  --config-workers 4 \
   --run-tag train_hejret_eval_all
 ```
 
@@ -160,7 +170,8 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --class-weights none,balanced,pos2 \
   --max-iters 100 \
   --final-max-iter 500 \
-  --num-threads 65 \
+  --num-threads 16 \
+  --config-workers 4 \
   --run-tag train_manakov_eval_all
 ```
 
@@ -182,6 +193,8 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --class-weights none \
   --max-iters 1 \
   --final-max-iter 0 \
+  --num-threads 1 \
+  --config-workers 1 \
   --limit-configs 1 \
   --run-tag smoke
 ```
