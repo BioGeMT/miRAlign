@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 THREADS = 65
-STEP_SCALES = "0.00001,0.000012,0.00002"
+STEP_SCALES = "0.00001,0.000012,0.00005,0.0001,0.0005"
 MAX_ITERS = "100"
 FINAL_MAX_ITER = "1000"
 EVAL_SPLITS = "hejret_test,manakov_test,manakov_leftout"
@@ -37,7 +37,7 @@ def run_case(train_family: str, run_tag: str) -> None:
         "--prior-precisions",
         "0,1",
         "--label-priors",
-        "none,symmetric_90_10",
+        "none,symmetric_95_5,symmetric_90_10,symmetric_80_20",
         "--class-weights",
         "none,balanced,pos2",
         "--max-iters",

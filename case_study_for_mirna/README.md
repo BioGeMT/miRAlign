@@ -50,13 +50,21 @@ a constant step size; the 1000-iteration final refit starts decaying after
 iteration 300.
 
 `label_prior` controls whether miRAlign models noisy observed labels. `none`
-uses the observed labels directly. `symmetric_90_10` starts from a 2x2 prior
-where both true negatives and true positives are assumed to be observed
-correctly 90% of the time and flipped 10% of the time:
+uses the observed labels directly. The symmetric options start from 2x2 priors
+where true negatives and true positives have the same assumed correctness rate:
 
 ```text
+symmetric_95_5:
+[[950,  50],
+ [ 50, 950]]
+
+symmetric_90_10:
 [[900, 100],
  [100, 900]]
+
+symmetric_80_20:
+[[800, 200],
+ [200, 800]]
 ```
 
 This is different from `class_weight`: `label_prior` models possible label
@@ -66,14 +74,16 @@ contribute to the optimization.
 ## Planned grid
 
 The initial practical grid should stay small because miRAlign learns
-position-specific parameters:
+position-specific parameters. The step scales include the DiscrimAlign table
+runner values `0.00001,0.00005,0.0001,0.0005` plus `0.000012`, the value used
+in the miRAlign notebook recommendation.
 
 ```text
 aligner: local, glocal
-step_scale: 0.00001, 0.000012, 0.00002
+step_scale: 0.00001, 0.000012, 0.00005, 0.0001, 0.0005
 step_decay_burnin: 300
 prior_precision: 0, 1
-label_prior: none, symmetric_90_10
+label_prior: none, symmetric_95_5, symmetric_90_10, symmetric_80_20
 class_weight: none, balanced, pos2
 max_iter: 100
 ```
@@ -111,10 +121,10 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --dataset hejret \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
   --aligners local,glocal \
-  --step-scales 0.00001,0.000012,0.00002 \
+  --step-scales 0.00001,0.000012,0.00005,0.0001,0.0005 \
   --step-decay-burnins 300 \
   --prior-precisions 0,1 \
-  --label-priors none,symmetric_90_10 \
+  --label-priors none,symmetric_95_5,symmetric_90_10,symmetric_80_20 \
   --class-weights none,balanced,pos2 \
   --max-iters 100 \
   --final-max-iter 1000 \
@@ -129,10 +139,10 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --dataset manakov \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
   --aligners local,glocal \
-  --step-scales 0.00001,0.000012,0.00002 \
+  --step-scales 0.00001,0.000012,0.00005,0.0001,0.0005 \
   --step-decay-burnins 300 \
   --prior-precisions 0,1 \
-  --label-priors none,symmetric_90_10 \
+  --label-priors none,symmetric_95_5,symmetric_90_10,symmetric_80_20 \
   --class-weights none,balanced,pos2 \
   --max-iters 100 \
   --final-max-iter 1000 \

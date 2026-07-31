@@ -19,8 +19,12 @@ ALIGNERS = {
 def label_prior_from_name(name: str):
     if name == "none":
         return None
+    if name == "symmetric_95_5":
+        return np.array([[950, 50], [50, 950]], dtype=float)
     if name == "symmetric_90_10":
         return np.array([[900, 100], [100, 900]], dtype=float)
+    if name == "symmetric_80_20":
+        return np.array([[800, 200], [200, 800]], dtype=float)
     raise ValueError(f"Unknown label prior: {name}")
 
 
@@ -125,4 +129,3 @@ def save_model(path: str | Path, model: dict, config: dict, summary: dict) -> No
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as handle:
         pickle.dump({"model": model, "config": config, "summary": summary}, handle)
-

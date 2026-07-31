@@ -104,7 +104,7 @@ def parse_args():
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--aligners", default="local,glocal")
-    parser.add_argument("--step-scales", default="0.00001,0.000012,0.00002")
+    parser.add_argument("--step-scales", default="0.00001,0.000012,0.00005,0.0001,0.0005")
     parser.add_argument("--step-power", type=float, default=0.5)
     parser.add_argument(
         "--step-decay-burnins",
@@ -112,7 +112,7 @@ def parse_args():
         help="Comma-separated iteration counts before learning-rate decay starts.",
     )
     parser.add_argument("--prior-precisions", default="0,1")
-    parser.add_argument("--label-priors", default="none,symmetric_90_10")
+    parser.add_argument("--label-priors", default="none,symmetric_95_5,symmetric_90_10,symmetric_80_20")
     parser.add_argument("--class-weights", default="none,balanced,pos2")
     parser.add_argument("--max-iters", default="100")
     parser.add_argument("--final-max-iter", type=int, default=1000)

@@ -1,5 +1,6 @@
 import numpy as np
 
+from case_study_for_mirna.modeling import label_prior_from_name
 from src.miralign import miRAlign
 from src.optimization_functions import (
     BASELINE_ALPHA,
@@ -97,3 +98,10 @@ def test_miralign_one_iteration_with_label_prior():
 
     assert result["label_observation_probs"].shape == (2, 2)
     assert np.isfinite(result["final_loglik"])
+
+
+def test_case_study_label_prior_names():
+    assert label_prior_from_name("none") is None
+    assert label_prior_from_name("symmetric_95_5")[0, 0] == 950
+    assert label_prior_from_name("symmetric_90_10")[0, 1] == 100
+    assert label_prior_from_name("symmetric_80_20")[1, 0] == 200
