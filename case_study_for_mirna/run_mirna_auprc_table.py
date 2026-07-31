@@ -7,7 +7,7 @@ from pathlib import Path
 THREADS = 65
 STEP_SCALES = "0.00001,0.000012,0.00005,0.0001,0.0005"
 MAX_ITERS = "100"
-FINAL_MAX_ITER = "1000"
+FINAL_MAX_ITER = "500"
 EVAL_SPLITS = "hejret_test,manakov_test,manakov_leftout"
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 RESULTS_DIR = REPOSITORY_ROOT / "results" / "case_study_for_mirna"

@@ -46,7 +46,7 @@ overfitting but may limit how much miRAlign adapts to the training data.
 initial `step_scale` constant through this many iterations, then decays it as
 `step_scale / (iteration - step_decay_burnin) ** step_power`. With the default
 grid-search setting of 100 iterations and `step_decay_burnin=300`, grid runs use
-a constant step size; the 1000-iteration final refit starts decaying after
+a constant step size; the 500-iteration final refit starts decaying after
 iteration 300.
 
 `label_prior` controls whether miRAlign models noisy observed labels. `none`
@@ -127,7 +127,7 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --label-priors none,symmetric_95_5,symmetric_90_10,symmetric_80_20 \
   --class-weights none,balanced,pos2 \
   --max-iters 100 \
-  --final-max-iter 1000 \
+  --final-max-iter 500 \
   --num-threads 65 \
   --run-tag train_hejret_eval_all
 ```
@@ -145,14 +145,14 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --label-priors none,symmetric_95_5,symmetric_90_10,symmetric_80_20 \
   --class-weights none,balanced,pos2 \
   --max-iters 100 \
-  --final-max-iter 1000 \
+  --final-max-iter 500 \
   --num-threads 65 \
   --run-tag train_manakov_eval_all
 ```
 
 This follows the DiscrimAlign case-study approach: run the grid at
 `--max-iters 100`, select by validation AUPRC, then refit the selected
-configuration at `--final-max-iter 1000` on the full training split.
+configuration at `--final-max-iter 500` on the full training split.
 
 For a quick smoke run, limit the grid and skip the final refit:
 

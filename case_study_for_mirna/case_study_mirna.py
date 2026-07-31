@@ -126,7 +126,7 @@ def parse_args():
     parser.add_argument("--label-priors", default="none,symmetric_95_5,symmetric_90_10,symmetric_80_20")
     parser.add_argument("--class-weights", default="none,balanced,pos2")
     parser.add_argument("--max-iters", default="100")
-    parser.add_argument("--final-max-iter", type=int, default=1000)
+    parser.add_argument("--final-max-iter", type=int, default=500)
     parser.add_argument("--num-threads", type=int, default=1)
     parser.add_argument("--limit-configs", type=int, default=0)
     parser.add_argument("--trained-model", default="", help="Path to a saved model.pkl artifact for evaluation-only use.")
