@@ -65,3 +65,35 @@ def test_miralign_one_iteration_smoke():
     assert result["M"].shape == (4, 4, 22)
     assert np.isfinite(result["alpha"])
     assert len(result["loglik_trajectory"]) == 1
+
+
+def test_miralign_one_iteration_with_sample_weights():
+    result = miRAlign(
+        ["A" * 22, "C" * 22],
+        ["A" * 30, "T" * 30],
+        [1, 0],
+        pos_aware_align_local,
+        create_subgradient_step(0.00001, 0.5, 300),
+        sample_weight=np.array([2.0, 1.0]),
+        MAX_ITER=1,
+        num_threads=1,
+    )
+
+    assert np.isfinite(result["final_loglik"])
+    assert len(result["subgradient_norm_trajectory"]) == 1
+
+
+def test_miralign_one_iteration_with_label_prior():
+    result = miRAlign(
+        ["A" * 22, "C" * 22],
+        ["A" * 30, "T" * 30],
+        [1, 0],
+        pos_aware_align_local,
+        create_subgradient_step(0.00001, 0.5, 300),
+        label_prior=np.array([[900, 100], [100, 900]], dtype=float),
+        MAX_ITER=1,
+        num_threads=1,
+    )
+
+    assert result["label_observation_probs"].shape == (2, 2)
+    assert np.isfinite(result["final_loglik"])

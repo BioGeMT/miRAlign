@@ -68,6 +68,57 @@ results/case_study_for_mirna/<dataset>_<run-tag>/
     selected_summary.json
 ```
 
+## Run the workflow
+
+Example: train a small local model on Hejret and evaluate on the manuscript
+held-out splits.
+
+```bash
+uv run python case_study_for_mirna/case_study_mirna.py \
+  --dataset hejret \
+  --eval-splits hejret_test,manakov_test,manakov_leftout \
+  --aligners local \
+  --step-scales 0.00001,0.000012,0.00002 \
+  --burnins 300 \
+  --prior-precisions 0,1 \
+  --label-priors none,symmetric_90_10 \
+  --class-weights none,balanced,pos2 \
+  --max-iters 100 \
+  --final-max-iter 500 \
+  --num-threads 8 \
+  --run-tag train_hejret_eval_all
+```
+
+For a quick smoke run, limit the grid and skip the final refit:
+
+```bash
+uv run python case_study_for_mirna/case_study_mirna.py \
+  --dataset hejret \
+  --eval-splits hejret_test \
+  --aligners local \
+  --step-scales 0.00001 \
+  --burnins 300 \
+  --prior-precisions 0 \
+  --label-priors none \
+  --class-weights none \
+  --max-iters 1 \
+  --final-max-iter 0 \
+  --limit-configs 1 \
+  --run-tag smoke
+```
+
+Saved models can be evaluated without refitting:
+
+```bash
+uv run python case_study_for_mirna/case_study_mirna.py \
+  --evaluate-only \
+  --trained-model results/case_study_for_mirna/hejret_smoke/best_grid_model/model.pkl \
+  --dataset hejret \
+  --eval-splits hejret_test \
+  --num-threads 8 \
+  --run-tag evaluate_saved_model
+```
+
 ## Core changes made for the case study
 
 - Restored the likelihood and subgradient helpers that were split out of
@@ -77,4 +128,6 @@ results/case_study_for_mirna/<dataset>_<run-tag>/
   initializer, matching the historical miRAlign notebooks.
 - Fixed the glocal alignment wrapper so backtracked gaps are rendered with the
   gap-aware nucleotide alphabet.
-
+- Added optional sample weighting to miRAlign likelihood, alpha optimization,
+  and subgradient updates for the `none`, `balanced`, and `pos2` case-study
+  class-weight settings.

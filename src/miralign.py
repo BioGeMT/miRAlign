@@ -44,6 +44,7 @@ def miRAlign(mirna_list, gene_list, label_list,
              G_gene_prior = None,
              prior_precision = 0,
              label_prior = None,
+             sample_weight=None,
              MAX_ITER=100, tol=1e-3,
              num_threads=1,
              verbose=False):
@@ -79,6 +80,11 @@ def miRAlign(mirna_list, gene_list, label_list,
     pair_count = len(mirna_list)
 
     label_list = np.array(label_list)
+    if sample_weight is None:
+        sample_weight = np.ones(pair_count)
+    else:
+        sample_weight = np.asarray(sample_weight, dtype=float)
+        assert len(sample_weight) == pair_count
 
     if label_prior is not None:
         label_probs = label_prior/np.sum(label_prior, axis=1, keepdims=True)
@@ -151,6 +157,8 @@ def miRAlign(mirna_list, gene_list, label_list,
         scores = np.array([x[0] for x in alignments])
         scores_pos = scores[label_list==1]
         scores_neg = scores[label_list==0]
+        weights_pos = sample_weight[label_list==1]
+        weights_neg = sample_weight[label_list==0]
         auprc_trajectory.append(average_precision_score(label_list, scores))
         curr_logl = logit_logl(scores_pos, scores_neg, alpha,
                label_observation_parameters = label_prior,
@@ -161,7 +169,9 @@ def miRAlign(mirna_list, gene_list, label_list,
                M_prior = M_prior,
                G_miR_prior = G_miR_prior,
                G_gene_prior = G_gene_prior,
-               lbd = prior_precision)
+               lbd = prior_precision,
+               weights_pos=weights_pos,
+               weights_neg=weights_neg)
         loglik_trajectory.append(curr_logl)
         if verbose:
             print('Current loglik:', curr_logl)
@@ -183,12 +193,16 @@ def miRAlign(mirna_list, gene_list, label_list,
                                M_prior = M_prior,
                                G_miR_prior = G_miR_prior,
                                G_gene_prior = G_gene_prior,
-                               lbd = prior_precision)
+                               lbd = prior_precision,
+                               weights_pos=weights_pos,
+                               weights_neg=weights_neg)
 
         def alpha_fprime(x):
             return  -logit_derivative_alpha(scores_pos, scores_neg,
                                             x,
-                                            label_probs)
+                                            label_probs,
+                                            weights_pos=weights_pos,
+                                            weights_neg=weights_neg)
         alpha = minimize(alpha_target,
                          alpha,
                          jac=alpha_fprime,
@@ -226,7 +240,9 @@ def miRAlign(mirna_list, gene_list, label_list,
                                    M_prior = M_prior,
                                    G_miR_prior = G_miR_prior,
                                    G_gene_prior = G_gene_prior,
-                                   lbd = prior_precision)
+                                   lbd = prior_precision,
+                                   weights_pos=weights_pos,
+                                   weights_neg=weights_neg)
 
             def eta_fprime(z):
                 """
@@ -239,7 +255,9 @@ def miRAlign(mirna_list, gene_list, label_list,
                                    scores_neg=scores_neg,
                                    alpha=alpha,
                                    label_observation_parameters = label_prior,
-                                   label_observation_probs = prob_array)
+                                   label_observation_probs = prob_array,
+                                   weights_pos=weights_pos,
+                                   weights_neg=weights_neg)
                 dx_dz = x*(1-x)
                 return dL_dx * dx_dz
             
@@ -249,7 +267,9 @@ def miRAlign(mirna_list, gene_list, label_list,
                              jac=eta_fprime,
                              tol=1e-3)
             if z_star.success is False:
-                raise RuntimeError('Estimation of label probabilities failed. Try decreasing the step size. If the problem persists, let me know about this.')
+                if verbose:
+                    print("Label probability optimization failed; keeping previous label probabilities.")
+                continue
             else:
                 z_star = z_star['x']
             # Step 2.4: Transform back to a vector of probabilities of
@@ -273,7 +293,8 @@ def miRAlign(mirna_list, gene_list, label_list,
                              G_miR_prior=G_miR_prior,
                              G_gene_prior=G_gene_prior,
                              lbd=prior_precision,
-                             label_observation_probs = label_probs
+                             label_observation_probs = label_probs,
+                             sample_weight=sample_weight
                              )
         G_miR += step_theta['G_miR_step']
         G_gene += step_theta['G_gene_step']
@@ -317,5 +338,3 @@ def get_label_posteriors(scores, labels, alpha,
     posterior /= np.sum(posterior, axis=0)
     posterior = posterior.T
     return posterior
-
-
