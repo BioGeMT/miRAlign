@@ -84,9 +84,19 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --label-priors none,symmetric_90_10 \
   --class-weights none,balanced,pos2 \
   --max-iters 100 \
-  --final-max-iter 500 \
+  --final-max-iter 1000 \
   --num-threads 8 \
   --run-tag train_hejret_eval_all
+```
+
+This follows the DiscrimAlign case-study approach: run the grid at
+`--max-iters 100`, select by validation AUPRC, then refit the selected
+configuration at `--final-max-iter 1000` on the full training split.
+
+To reproduce both training-family rows for the AUPRC table:
+
+```bash
+uv run python case_study_for_mirna/run_mirna_auprc_table.py
 ```
 
 For a quick smoke run, limit the grid and skip the final refit:
