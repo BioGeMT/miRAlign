@@ -70,14 +70,21 @@ results/case_study_for_mirna/<dataset>_<run-tag>/
 
 ## Run the workflow
 
-Example: train a small local model on Hejret and evaluate on the manuscript
-held-out splits.
+To reproduce both training-family rows for the AUPRC table:
+
+```bash
+uv run python case_study_for_mirna/run_mirna_auprc_table.py
+```
+
+The runner executes the following full runs.
+
+### Hejret-trained run
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py \
   --dataset hejret \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
-  --aligners local \
+  --aligners local,glocal \
   --step-scales 0.00001,0.000012,0.00002 \
   --burnins 300 \
   --prior-precisions 0,1 \
@@ -89,15 +96,27 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --run-tag train_hejret_eval_all
 ```
 
+### Manakov-trained run
+
+```bash
+uv run python case_study_for_mirna/case_study_mirna.py \
+  --dataset manakov \
+  --eval-splits hejret_test,manakov_test,manakov_leftout \
+  --aligners local,glocal \
+  --step-scales 0.00001,0.000012,0.00002 \
+  --burnins 300 \
+  --prior-precisions 0,1 \
+  --label-priors none,symmetric_90_10 \
+  --class-weights none,balanced,pos2 \
+  --max-iters 100 \
+  --final-max-iter 1000 \
+  --num-threads 65 \
+  --run-tag train_manakov_eval_all
+```
+
 This follows the DiscrimAlign case-study approach: run the grid at
 `--max-iters 100`, select by validation AUPRC, then refit the selected
 configuration at `--final-max-iter 1000` on the full training split.
-
-To reproduce both training-family rows for the AUPRC table:
-
-```bash
-uv run python case_study_for_mirna/run_mirna_auprc_table.py
-```
 
 For a quick smoke run, limit the grid and skip the final refit:
 
