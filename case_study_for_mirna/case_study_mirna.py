@@ -108,8 +108,6 @@ def parse_args():
     parser.add_argument("--step-power", type=float, default=0.5)
     parser.add_argument(
         "--step-decay-burnins",
-        "--burnins",
-        dest="step_decay_burnins",
         default="300",
         help="Comma-separated iteration counts before learning-rate decay starts.",
     )

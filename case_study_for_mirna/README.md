@@ -49,6 +49,20 @@ grid-search setting of 100 iterations and `step_decay_burnin=300`, grid runs use
 a constant step size; the 1000-iteration final refit starts decaying after
 iteration 300.
 
+`label_prior` controls whether miRAlign models noisy observed labels. `none`
+uses the observed labels directly. `symmetric_90_10` starts from a 2x2 prior
+where both true negatives and true positives are assumed to be observed
+correctly 90% of the time and flipped 10% of the time:
+
+```text
+[[900, 100],
+ [100, 900]]
+```
+
+This is different from `class_weight`: `label_prior` models possible label
+noise, while `class_weight` changes how much positive and negative examples
+contribute to the optimization.
+
 ## Planned grid
 
 The initial practical grid should stay small because miRAlign learns
