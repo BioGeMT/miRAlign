@@ -1,0 +1,80 @@
+# miRNA case study
+
+This directory contains the miRBench-based miRNA case-study workflow for miRAlign.
+The workflow follows the same structure used for the DiscrimAlign miRNA case
+study: train on a named miRBench training split, select a configuration using a
+validation split, refit the selected configuration, and report AUPRC/ROC-AUC on
+held-out miRBench splits.
+
+## Methodology
+
+The case study uses the miRBench dataset interface and the following aliases:
+
+```text
+hejret_train
+hejret_test
+manakov_train
+manakov_test
+manakov_leftout
+klimentova_test
+```
+
+Training data are split into fit and validation partitions with stratified
+sampling. Configurations are ranked by validation AUPRC. The selected
+configuration is then refit on the full training split and evaluated on the
+requested held-out splits.
+
+miRAlign initializes its position-specific substitution matrix and gap vectors
+from the Hejret/DiscrimAlign simple-alignment baseline:
+
+```text
+match = 0.724709
+mismatch = -0.647892
+gap = -0.901264
+alpha = -5.226262
+```
+
+When prior regularization is enabled, the same baseline should be used as the
+default prior for `M`, `G_miR`, and `G_gene`.
+
+## Planned grid
+
+The initial practical grid should stay small because miRAlign learns
+position-specific parameters:
+
+```text
+aligner: local, glocal
+step_scale: 0.00001, 0.000012, 0.00002
+burnin: 300
+prior_precision: 0, 1
+label_prior: none, symmetric_90_10
+class_weight: none, balanced, pos2
+max_iter: 100
+```
+
+The first fully reproducible scripts should write:
+
+```text
+results/case_study_for_mirna/<dataset>_<run-tag>/
+  summary.csv
+  metrics.csv
+  pr_points.csv
+  roc_points.csv
+  trajectories.csv
+  errors.csv
+  best_grid_model/
+    model.pkl
+    model_parameters.json
+    selected_summary.json
+```
+
+## Core changes made for the case study
+
+- Restored the likelihood and subgradient helpers that were split out of
+  `src/miralign.py` but not committed as module files.
+- Restored `create_subgradient_step` in `src/optimization_functions.py`.
+- Implemented `logreg_starting_point` as a fixed Hejret/DiscrimAlign baseline
+  initializer, matching the historical miRAlign notebooks.
+- Fixed the glocal alignment wrapper so backtracked gaps are rendered with the
+  gap-aware nucleotide alphabet.
+
