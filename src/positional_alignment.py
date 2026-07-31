@@ -152,6 +152,13 @@ def pos_aware_align_glocal_numba(miR_int, mR_int, M, G_miR, G_gene, backtrack=Fa
     if backtrack:
         i, j = n, j_star
         while i > 0:
+            if j == 0:
+                align_miR.append(miR_int[i - 1])
+                align_mR.append(4)
+                seq_idx_miR.append(i - 1)
+                seq_idx_mR.append(-1)
+                i -= 1
+                continue
             d = bt[i, j]
             if d == 1:  # DIAG
                 align_miR.append(miR_int[i - 1])

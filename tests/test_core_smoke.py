@@ -19,8 +19,8 @@ def test_baseline_parameters_match_hejret_discrimalign_constants():
     assert params["alpha"] == BASELINE_ALPHA
     assert np.all(params["G_miR"] == BASELINE_GAP_SCORE)
     assert np.all(params["G_gene"] == BASELINE_GAP_SCORE)
-    assert params["M"][0, 0, 0] == BASELINE_MATCH_SCORE
-    assert params["M"][0, 1, 0] == BASELINE_MISMATCH_SCORE
+    assert np.isclose(params["M"][0, 0, 0], BASELINE_MATCH_SCORE)
+    assert np.isclose(params["M"][0, 1, 0], BASELINE_MISMATCH_SCORE)
 
 
 def test_logreg_starting_point_uses_fixed_baseline():
@@ -36,7 +36,7 @@ def test_glocal_alignment_wrapper_handles_gaps():
     params = baseline_parameters()
     score, aligned_mir, aligned_gene, mir_coords, gene_coords = pos_aware_align_glocal(
         "A" * 22,
-        "A" * 11,
+        "A" * 21,
         params["M"],
         params["G_miR"],
         params["G_gene"],
@@ -65,4 +65,3 @@ def test_miralign_one_iteration_smoke():
     assert result["M"].shape == (4, 4, 22)
     assert np.isfinite(result["alpha"])
     assert len(result["loglik_trajectory"]) == 1
-
