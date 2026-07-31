@@ -219,8 +219,8 @@ def pos_aware_align_glocal(miR, mR, M, G_miR, G_gene, backtrack=False):
     S, align_miR, align_mR, crdmir, crdgene = pos_aware_align_glocal_numba(A_int, B_int, 
                                                                           M, G_miR, G_gene, 
                                                                           backtrack=backtrack)
-    align_mR = [NUCL[i] for i in align_mR]
-    align_miR = [NUCL[i] for i in align_miR]
+    align_mR = [NUCL_WGAP[i] for i in align_mR]
+    align_miR = [NUCL_WGAP[i] for i in align_miR]
     return(S, align_miR, align_mR, crdmir, crdgene)
 
 
