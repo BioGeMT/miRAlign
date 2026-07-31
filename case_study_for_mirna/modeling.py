@@ -62,7 +62,11 @@ def fit_configuration(fit_inputs, config: dict):
         gene_list=fit_inputs[1],
         label_list=fit_inputs[2],
         aligner=ALIGNERS[config["aligner"]],
-        step_function=create_subgradient_step(float(config["step_scale"]), float(config["step_power"]), int(config["burnin"])),
+        step_function=create_subgradient_step(
+            float(config["step_scale"]),
+            float(config["step_power"]),
+            int(config["step_decay_burnin"]),
+        ),
         M_prior=M_prior,
         G_miR_prior=G_miR_prior,
         G_gene_prior=G_gene_prior,

@@ -33,6 +33,17 @@ from src.optimization_functions import baseline_parameters
 PAIRED_DATASET_SPLITS = {"hejret": ("hejret_train", "hejret_test"), "manakov": ("manakov_train", "manakov_test")}
 SUPPORTED_DATASET_SPLITS = ["hejret_train", "hejret_test", "manakov_train", "manakov_test", "manakov_leftout", "klimentova_test"]
 REQUIRED_EVALUATION_COLUMNS = ["noncodingRNA", "gene", "label"]
+CONFIG_KEYS = [
+    "dataset",
+    "aligner",
+    "step_scale",
+    "step_power",
+    "step_decay_burnin",
+    "prior_precision",
+    "label_prior",
+    "class_weight",
+    "num_threads",
+]
 
 
 def csv_values(raw: str) -> list[str]:
@@ -165,9 +176,9 @@ def load_frames(args):
 
 
 def build_config(dataset_label, index, values, args):
-    aligner, step_scale, burnin, prior_precision, label_prior, class_weight, max_iter = values
+    aligner, step_scale, step_decay_burnin, prior_precision, label_prior, class_weight, max_iter = values
     config_name = (
-        f"cfg_{index:04d}_{aligner}_s{step_scale}_b{burnin}"
+        f"cfg_{index:04d}_{aligner}_s{step_scale}_d{step_decay_burnin}"
         f"_p{prior_precision}_{label_prior}_{class_weight}_i{max_iter}"
     )
     return {
@@ -177,7 +188,7 @@ def build_config(dataset_label, index, values, args):
         "aligner": aligner,
         "step_scale": float(step_scale),
         "step_power": float(args.step_power),
-        "burnin": int(burnin),
+        "step_decay_burnin": int(step_decay_burnin),
         "prior_precision": float(prior_precision),
         "label_prior": label_prior,
         "class_weight": class_weight,
@@ -338,7 +349,8 @@ def main():
         copy_artifact_dir(best.get("model_artifact_dir", ""), run_dir / "best_grid_model")
         write_json(run_dir / "best_grid_model" / "selected_summary.json", {"selected_from": "grid", "summary": best})
     if ranked and args.final_max_iter > 0 and not args.skip_evaluation:
-        final_config = {**ranked[0], "config_index": 0, "config": f"final_refit_{ranked[0]['config']}", "max_iter": args.final_max_iter}
+        final_config = {key: ranked[0][key] for key in CONFIG_KEYS}
+        final_config.update({"config_index": 0, "config": f"final_refit_{ranked[0]['config']}", "max_iter": args.final_max_iter})
         result, runtime = fit_configuration(train_inputs, final_config)
         final_row = summarize_result(final_config, result, runtime)
         final_model = model_from_result(result, final_config)

@@ -71,9 +71,9 @@ This is different from `class_weight`: `label_prior` models possible label
 noise, while `class_weight` changes how much positive and negative examples
 contribute to the optimization.
 
-## Planned grid
+## Grid
 
-The initial practical grid should stay small because miRAlign learns
+The default grid is intentionally bounded because miRAlign learns
 position-specific parameters. The step scales include the DiscrimAlign table
 runner values `0.00001,0.00005,0.0001,0.0005` plus `0.000012`, the value used
 in the miRAlign notebook recommendation.
@@ -88,7 +88,7 @@ class_weight: none, balanced, pos2
 max_iter: 100
 ```
 
-The first fully reproducible scripts should write:
+The workflow writes:
 
 ```text
 results/case_study_for_mirna/<dataset>_<run-tag>/
@@ -128,7 +128,7 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --class-weights none,balanced,pos2 \
   --max-iters 100 \
   --final-max-iter 1000 \
-  --num-threads 8 \
+  --num-threads 65 \
   --run-tag train_hejret_eval_all
 ```
 
