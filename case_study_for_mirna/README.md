@@ -97,6 +97,9 @@ The workflow writes:
 ```text
 results/case_study_for_mirna/<run-tag>/
   dataset_summary.csv         aggregate and per-length split counts
+  entity_frequency_summary.csv
+  top_entities.csv
+  split_overlap.csv
   summary.csv                 grid summaries with fit/validation metrics
   metrics.csv                 grid fit/validation metrics
   pr_points.csv               grid fit/validation precision-recall curves

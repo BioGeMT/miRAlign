@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from case_study_for_mirna.modeling import label_prior_from_name
-from case_study_for_mirna.case_study_mirna import evaluate_existing_model, write_dataset_summary
+from case_study_for_mirna.case_study_mirna import evaluate_existing_model, write_dataset_diagnostics, write_dataset_summary
 from src.miralign import miRAlign
 from src.optimization_functions import (
     BASELINE_ALPHA,
@@ -151,3 +151,33 @@ def test_write_dataset_summary_reports_length_counts(tmp_path):
     assert row["unique_pairs"] == 3
     assert row["mean_mirnas_per_gene"] == 1.5
     assert set(summary["length"].astype(str)) == {"all", "21", "22"}
+
+
+def test_write_dataset_diagnostics_reports_frequency_and_overlap(tmp_path):
+    train = pd.DataFrame(
+        {
+            "noncodingRNA": ["mir1", "mir1", "mir2"],
+            "gene": ["gene1", "gene2", "gene2"],
+            "label": [1, 0, 1],
+        }
+    )
+    heldout = pd.DataFrame(
+        {
+            "noncodingRNA": ["mir1", "mir3"],
+            "gene": ["gene9", "gene2"],
+            "label": [0, 1],
+        }
+    )
+
+    write_dataset_diagnostics(tmp_path, {"train": train, "heldout": heldout}, top_n=1)
+
+    frequency = pd.read_csv(tmp_path / "entity_frequency_summary.csv")
+    assert {"mirna", "gene"} == set(frequency["entity_type"])
+    assert frequency[(frequency["split"] == "train") & (frequency["entity_type"] == "mirna") & (frequency["label"].astype(str) == "all")]["max_pairs"].iloc[0] == 2
+
+    top = pd.read_csv(tmp_path / "top_entities.csv")
+    assert set(top["rank"]) == {1}
+
+    overlap = pd.read_csv(tmp_path / "split_overlap.csv")
+    mirna_overlap = overlap[overlap["entity_type"] == "mirna"].iloc[0]
+    assert mirna_overlap["overlap_entities"] == 1

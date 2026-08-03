@@ -130,6 +130,7 @@ def parse_args():
     parser.add_argument("--num-threads", type=int, default=1)
     parser.add_argument("--config-workers", type=int, default=1, help="Number of grid configurations to fit concurrently.")
     parser.add_argument("--limit-configs", type=int, default=0)
+    parser.add_argument("--top-entities", type=int, default=20, help="Rows per split/entity to write to top_entities.csv.")
     parser.add_argument("--trained-model", default="", help="Path to a saved model.pkl artifact for evaluation-only use.")
     parser.add_argument("--evaluate-only", action="store_true")
     parser.add_argument("--skip-evaluation", action="store_true")
@@ -182,6 +183,100 @@ def write_dataset_summary(path: str | Path, frames_by_split: dict[str, pd.DataFr
     for split_name, frame in frames_by_split.items():
         rows.extend(dataset_summary_rows(split_name, frame))
     write_rows(path, rows)
+
+
+def _distribution_stats(values) -> dict:
+    values = pd.Series(list(values), dtype=float)
+    if values.empty:
+        return {"mean_pairs": np.nan, "median_pairs": np.nan, "p95_pairs": np.nan, "max_pairs": 0}
+    return {
+        "mean_pairs": float(values.mean()),
+        "median_pairs": float(values.median()),
+        "p95_pairs": float(values.quantile(0.95)),
+        "max_pairs": int(values.max()),
+    }
+
+
+def entity_frequency_summary_rows(frames_by_split: dict[str, pd.DataFrame]) -> list[dict]:
+    rows = []
+    for split_name, frame in frames_by_split.items():
+        for entity_type, column in [("mirna", "noncodingRNA"), ("gene", "gene")]:
+            label_groups = [("all", frame)]
+            label_groups.extend((str(label), group) for label, group in frame.groupby("label", sort=True))
+            for label_scope, group in label_groups:
+                counts = group.groupby(column).size() if not group.empty else pd.Series(dtype=int)
+                rows.append(
+                    {
+                        "split": split_name,
+                        "entity_type": entity_type,
+                        "label": label_scope,
+                        "entities": int(counts.shape[0]),
+                        **_distribution_stats(counts.tolist()),
+                    }
+                )
+    return rows
+
+
+def top_entity_rows(frames_by_split: dict[str, pd.DataFrame], top_n: int) -> list[dict]:
+    rows = []
+    if top_n <= 0:
+        return rows
+    for split_name, frame in frames_by_split.items():
+        for entity_type, column in [("mirna", "noncodingRNA"), ("gene", "gene")]:
+            label_groups = [("all", frame)]
+            label_groups.extend((str(label), group) for label, group in frame.groupby("label", sort=True))
+            for label_scope, group in label_groups:
+                counts = group.groupby(column).size().sort_values(ascending=False)
+                for rank, (entity, count) in enumerate(counts.head(top_n).items(), start=1):
+                    rows.append(
+                        {
+                            "split": split_name,
+                            "entity_type": entity_type,
+                            "label": label_scope,
+                            "rank": rank,
+                            "entity": entity,
+                            "pairs": int(count),
+                        }
+                    )
+    return rows
+
+
+def _entity_set(frame: pd.DataFrame, entity_type: str) -> set:
+    if entity_type == "pair":
+        return set(map(tuple, frame[["noncodingRNA", "gene"]].itertuples(index=False, name=None)))
+    return set(frame[entity_type])
+
+
+def split_overlap_rows(frames_by_split: dict[str, pd.DataFrame]) -> list[dict]:
+    rows = []
+    items = list(frames_by_split.items())
+    for idx, (left_name, left_frame) in enumerate(items):
+        for right_name, right_frame in items[idx + 1:]:
+            for entity_type, column in [("noncodingRNA", "noncodingRNA"), ("gene", "gene"), ("pair", None)]:
+                left = _entity_set(left_frame, entity_type if entity_type == "pair" else column)
+                right = _entity_set(right_frame, entity_type if entity_type == "pair" else column)
+                overlap = left.intersection(right)
+                rows.append(
+                    {
+                        "left_split": left_name,
+                        "right_split": right_name,
+                        "entity_type": "mirna" if entity_type == "noncodingRNA" else entity_type,
+                        "left_entities": len(left),
+                        "right_entities": len(right),
+                        "overlap_entities": len(overlap),
+                        "left_overlap_fraction": len(overlap) / len(left) if left else np.nan,
+                        "right_overlap_fraction": len(overlap) / len(right) if right else np.nan,
+                    }
+                )
+    return rows
+
+
+def write_dataset_diagnostics(run_dir: str | Path, frames_by_split: dict[str, pd.DataFrame], top_n: int) -> None:
+    run_dir = Path(run_dir)
+    write_dataset_summary(run_dir / "dataset_summary.csv", frames_by_split)
+    write_rows(run_dir / "entity_frequency_summary.csv", entity_frequency_summary_rows(frames_by_split))
+    write_rows(run_dir / "top_entities.csv", top_entity_rows(frames_by_split, top_n))
+    write_rows(run_dir / "split_overlap.csv", split_overlap_rows(frames_by_split))
 
 
 def require_training_frame(frame: pd.DataFrame, split_name: str) -> None:
@@ -389,7 +484,7 @@ def main():
     run_dir = Path(args.results_dir) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     args.model_length = infer_model_length([train_frame, *evaluation_frames.values()])
-    write_dataset_summary(run_dir / "dataset_summary.csv", summary_frames)
+    write_dataset_diagnostics(run_dir, summary_frames, args.top_entities)
     evaluation_inputs = {name: prepare_inputs(frame) for name, frame in evaluation_frames.items()}
 
     if args.evaluate_only:
