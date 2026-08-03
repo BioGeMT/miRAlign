@@ -98,6 +98,7 @@ step_decay_burnin: 300
 prior_precision: 0, 1
 label_prior: none, symmetric_95_5, symmetric_90_10, symmetric_80_20
 split_strategy: random
+sample_weight: none, mirna_gene_sqrt
 max_iter: 100
 ```
 

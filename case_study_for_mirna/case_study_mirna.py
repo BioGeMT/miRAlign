@@ -45,6 +45,7 @@ CONFIG_KEYS = [
     "label_prior",
     "model_length",
     "split_strategy",
+    "sample_weight",
     "num_threads",
 ]
 
@@ -128,6 +129,7 @@ def parse_args():
     )
     parser.add_argument("--prior-precisions", default="0,1")
     parser.add_argument("--label-priors", default="none,symmetric_95_5,symmetric_90_10,symmetric_80_20")
+    parser.add_argument("--sample-weights", default="none,mirna_gene_sqrt")
     parser.add_argument("--max-iters", default="100")
     parser.add_argument("--final-max-iter", type=int, default=500)
     parser.add_argument("--num-threads", type=int, default=1)
@@ -319,7 +321,7 @@ def prepare_inputs(frame: pd.DataFrame):
     seq_a = frame["noncodingRNA"].astype(str).tolist()
     seq_b = [str(Seq(seq).reverse_complement()) for seq in frame["gene"].astype(str)]
     labels = frame["label"].astype(int).tolist()
-    return seq_a, seq_b, labels
+    return seq_a, seq_b, labels, frame
 
 
 def infer_model_length(frames: list[pd.DataFrame]) -> int:
@@ -365,10 +367,10 @@ def load_frames(args):
 
 
 def build_config(dataset_label, index, values, args):
-    aligner, step_scale, step_decay_burnin, prior_precision, label_prior, max_iter = values
+    aligner, step_scale, step_decay_burnin, prior_precision, label_prior, sample_weight, max_iter = values
     config_name = (
         f"cfg_{index:04d}_{aligner}_s{step_scale}_d{step_decay_burnin}"
-        f"_p{prior_precision}_{label_prior}_i{max_iter}"
+        f"_p{prior_precision}_{label_prior}_{sample_weight}_i{max_iter}"
     )
     return {
         "dataset": dataset_label,
@@ -382,6 +384,7 @@ def build_config(dataset_label, index, values, args):
         "label_prior": label_prior,
         "model_length": int(args.model_length),
         "split_strategy": args.split_strategy,
+        "sample_weight": sample_weight,
         "max_iter": int(max_iter),
         "num_threads": int(args.num_threads),
     }
@@ -529,6 +532,7 @@ def main():
             [int(value) for value in csv_values(args.step_decay_burnins)],
             [float(value) for value in csv_values(args.prior_precisions)],
             csv_values(args.label_priors),
+            csv_values(args.sample_weights),
             [int(value) for value in csv_values(args.max_iters)],
         )
     )

@@ -28,6 +28,35 @@ def label_prior_from_name(name: str):
     raise ValueError(f"Unknown label prior: {name}")
 
 
+def sample_weight_from_name(name: str, frame) -> np.ndarray | None:
+    if name == "none":
+        return None
+    weights = np.ones(len(frame), dtype=float)
+    if len(frame) == 0:
+        return weights
+    if name == "mirna_balanced":
+        counts = frame["noncodingRNA"].map(frame["noncodingRNA"].value_counts()).to_numpy(dtype=float)
+        weights = len(frame) / (frame["noncodingRNA"].nunique() * counts)
+    elif name == "gene_balanced":
+        counts = frame["gene"].map(frame["gene"].value_counts()).to_numpy(dtype=float)
+        weights = len(frame) / (frame["gene"].nunique() * counts)
+    elif name == "pair_balanced":
+        pair_counts = frame.groupby(["noncodingRNA", "gene"]).size()
+        counts = np.array(
+            [pair_counts.loc[(mirna, gene)] for mirna, gene in zip(frame["noncodingRNA"], frame["gene"])],
+            dtype=float,
+        )
+        weights = len(frame) / (len(pair_counts) * counts)
+    elif name == "mirna_gene_sqrt":
+        mirna_counts = frame["noncodingRNA"].map(frame["noncodingRNA"].value_counts()).to_numpy(dtype=float)
+        gene_counts = frame["gene"].map(frame["gene"].value_counts()).to_numpy(dtype=float)
+        weights = 1 / np.sqrt(mirna_counts * gene_counts)
+        weights = weights / np.mean(weights)
+    else:
+        raise ValueError(f"Unknown sample weight: {name}")
+    return weights
+
+
 def priors_from_precision(prior_precision: float, mirna_length: int):
     if float(prior_precision) <= 0:
         return None, None, None
@@ -55,6 +84,7 @@ def fit_configuration(fit_inputs, config: dict):
         prior_precision=float(config["prior_precision"]),
         label_prior=label_prior_from_name(config["label_prior"]),
         model_length=model_length,
+        sample_weight=sample_weight_from_name(config["sample_weight"], fit_inputs[3]),
         MAX_ITER=int(config["max_iter"]),
         num_threads=int(config["num_threads"]),
         verbose=False,

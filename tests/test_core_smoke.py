@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from case_study_for_mirna.modeling import label_prior_from_name
+from case_study_for_mirna.modeling import label_prior_from_name, sample_weight_from_name
 from case_study_for_mirna.case_study_mirna import (
     evaluate_existing_model,
     split_train_validation,
@@ -92,6 +92,22 @@ def test_miralign_one_iteration_with_mixed_mirna_lengths():
     assert result["G_gene"].shape == (22,)
 
 
+def test_miralign_one_iteration_with_sample_weights():
+    result = miRAlign(
+        ["A" * 21, "C" * 22],
+        ["A" * 30, "T" * 30],
+        [1, 0],
+        pos_aware_align_local,
+        create_subgradient_step(0.00001, 0.5, 300),
+        model_length=22,
+        sample_weight=np.array([2.0, 1.0]),
+        MAX_ITER=1,
+        num_threads=1,
+    )
+
+    assert np.isfinite(result["final_loglik"])
+
+
 def test_miralign_one_iteration_with_label_prior():
     result = miRAlign(
         ["A" * 22, "C" * 22],
@@ -113,6 +129,27 @@ def test_case_study_label_prior_names():
     assert label_prior_from_name("symmetric_95_5")[0, 0] == 950
     assert label_prior_from_name("symmetric_90_10")[0, 1] == 100
     assert label_prior_from_name("symmetric_80_20")[1, 0] == 200
+
+
+def test_sample_weight_names_balance_entities():
+    frame = pd.DataFrame(
+        {
+            "noncodingRNA": ["mir1", "mir1", "mir2", "mir3"],
+            "gene": ["gene1", "gene2", "gene2", "gene2"],
+            "label": [1, 0, 1, 0],
+        }
+    )
+
+    mirna_weights = sample_weight_from_name("mirna_balanced", frame)
+    gene_weights = sample_weight_from_name("gene_balanced", frame)
+    pair_weights = sample_weight_from_name("pair_balanced", frame)
+    combined_weights = sample_weight_from_name("mirna_gene_sqrt", frame)
+
+    assert mirna_weights[0] == mirna_weights[1]
+    assert mirna_weights[2] > mirna_weights[0]
+    assert gene_weights[0] > gene_weights[1]
+    assert np.allclose(pair_weights, 1.0)
+    assert np.isclose(combined_weights.mean(), 1.0)
 
 
 def test_grouped_validation_split_holds_out_mirnas():
