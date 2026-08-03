@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from Bio.Seq import Seq
 from joblib import Parallel, delayed
+from sklearn.model_selection import GroupShuffleSplit
 from sklearn.model_selection import train_test_split
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -43,6 +44,7 @@ CONFIG_KEYS = [
     "prior_precision",
     "label_prior",
     "model_length",
+    "split_strategy",
     "num_threads",
 ]
 
@@ -115,6 +117,7 @@ def parse_args():
     parser.add_argument("--run-tag", default="")
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--split-seed", type=int, default=42)
+    parser.add_argument("--split-strategy", default="random", choices=["random", "group_mirna", "group_gene"])
     parser.add_argument("--aligners", default="local,glocal")
     parser.add_argument("--step-scales", default="0.00001,0.000012,0.00005,0.0001,0.0005")
     parser.add_argument("--step-power", type=float, default=0.5)
@@ -286,6 +289,32 @@ def require_training_frame(frame: pd.DataFrame, split_name: str) -> None:
         raise ValueError(f"{split_name} must contain both positive and negative labels.")
 
 
+def split_train_validation(train_frame: pd.DataFrame, args) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if args.split_strategy == "random":
+        fit_frame, validation_frame = train_test_split(
+            train_frame,
+            test_size=args.validation_fraction,
+            random_state=args.split_seed,
+            stratify=train_frame["label"].astype(int),
+        )
+        return fit_frame.reset_index(drop=True), validation_frame.reset_index(drop=True)
+
+    group_column = "noncodingRNA" if args.split_strategy == "group_mirna" else "gene"
+    splitter = GroupShuffleSplit(
+        n_splits=50,
+        test_size=args.validation_fraction,
+        random_state=args.split_seed,
+    )
+    labels = train_frame["label"].astype(int)
+    groups = train_frame[group_column].astype(str)
+    for fit_idx, validation_idx in splitter.split(train_frame, labels, groups):
+        fit_frame = train_frame.iloc[fit_idx].reset_index(drop=True)
+        validation_frame = train_frame.iloc[validation_idx].reset_index(drop=True)
+        if fit_frame["label"].astype(int).nunique() == 2 and validation_frame["label"].astype(int).nunique() == 2:
+            return fit_frame, validation_frame
+    raise ValueError(f"Could not create a two-class validation split with strategy {args.split_strategy!r}.")
+
+
 def prepare_inputs(frame: pd.DataFrame):
     seq_a = frame["noncodingRNA"].astype(str).tolist()
     seq_b = [str(Seq(seq).reverse_complement()) for seq in frame["gene"].astype(str)]
@@ -329,14 +358,7 @@ def load_frames(args):
     train_frame = raw_train_frame
     summary_frames[train_alias] = train_frame
     require_training_frame(train_frame, train_alias)
-    fit_frame, validation_frame = train_test_split(
-        train_frame,
-        test_size=args.validation_fraction,
-        random_state=args.split_seed,
-        stratify=train_frame["label"].astype(int),
-    )
-    fit_frame = fit_frame.reset_index(drop=True)
-    validation_frame = validation_frame.reset_index(drop=True)
+    fit_frame, validation_frame = split_train_validation(train_frame, args)
     summary_frames["fit"] = fit_frame
     summary_frames["validation"] = validation_frame
     return train_frame, fit_frame, validation_frame, evaluation_frames, summary_frames
@@ -359,6 +381,7 @@ def build_config(dataset_label, index, values, args):
         "prior_precision": float(prior_precision),
         "label_prior": label_prior,
         "model_length": int(args.model_length),
+        "split_strategy": args.split_strategy,
         "max_iter": int(max_iter),
         "num_threads": int(args.num_threads),
     }

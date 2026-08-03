@@ -2,7 +2,12 @@ import numpy as np
 import pandas as pd
 
 from case_study_for_mirna.modeling import label_prior_from_name
-from case_study_for_mirna.case_study_mirna import evaluate_existing_model, write_dataset_diagnostics, write_dataset_summary
+from case_study_for_mirna.case_study_mirna import (
+    evaluate_existing_model,
+    split_train_validation,
+    write_dataset_diagnostics,
+    write_dataset_summary,
+)
 from src.miralign import miRAlign
 from src.optimization_functions import (
     BASELINE_ALPHA,
@@ -108,6 +113,40 @@ def test_case_study_label_prior_names():
     assert label_prior_from_name("symmetric_95_5")[0, 0] == 950
     assert label_prior_from_name("symmetric_90_10")[0, 1] == 100
     assert label_prior_from_name("symmetric_80_20")[1, 0] == 200
+
+
+def test_grouped_validation_split_holds_out_mirnas():
+    frame = pd.DataFrame(
+        {
+            "noncodingRNA": [f"mir{i}" for i in range(8) for _ in range(2)],
+            "gene": [f"gene{i}_{j}" for i in range(8) for j in range(2)],
+            "label": [0, 1] * 8,
+        }
+    )
+    args = type("Args", (), {"split_strategy": "group_mirna", "validation_fraction": 0.25, "split_seed": 1})
+
+    fit, validation = split_train_validation(frame, args)
+
+    assert set(fit["noncodingRNA"]).isdisjoint(set(validation["noncodingRNA"]))
+    assert set(fit["label"]) == {0, 1}
+    assert set(validation["label"]) == {0, 1}
+
+
+def test_grouped_validation_split_holds_out_genes():
+    frame = pd.DataFrame(
+        {
+            "noncodingRNA": [f"mir{i}_{j}" for i in range(8) for j in range(2)],
+            "gene": [f"gene{i}" for i in range(8) for _ in range(2)],
+            "label": [0, 1] * 8,
+        }
+    )
+    args = type("Args", (), {"split_strategy": "group_gene", "validation_fraction": 0.25, "split_seed": 1})
+
+    fit, validation = split_train_validation(frame, args)
+
+    assert set(fit["gene"]).isdisjoint(set(validation["gene"]))
+    assert set(fit["label"]) == {0, 1}
+    assert set(validation["label"]) == {0, 1}
 
 
 def test_evaluate_existing_model_writes_requested_splits(tmp_path):

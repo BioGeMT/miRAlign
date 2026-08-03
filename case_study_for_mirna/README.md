@@ -24,6 +24,14 @@ sampling. Configurations are ranked by validation AUPRC. The selected
 configuration is then refit on the full training split and evaluated on the
 requested held-out splits.
 
+Use `--split-strategy` to choose the validation design:
+
+```text
+random       stratified row-level split
+group_mirna  validation miRNAs are unseen during fitting
+group_gene   validation genes are unseen during fitting
+```
+
 All miRNA lengths in the loaded splits are included. The model allocates one
 shared position-specific parameter set up to the longest loaded miRNA, while
 shorter miRNAs are kept as real shorter sequences. Their absent tail positions
@@ -89,6 +97,7 @@ step_scale: 0.00001, 0.000012, 0.00005, 0.0001, 0.0005
 step_decay_burnin: 300
 prior_precision: 0, 1
 label_prior: none, symmetric_95_5, symmetric_90_10, symmetric_80_20
+split_strategy: random
 max_iter: 100
 ```
 
