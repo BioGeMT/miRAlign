@@ -20,7 +20,6 @@ def pos_aware_align_local_numba(miR_int, mR_int, M, G_miR, G_gene, backtrack=Fal
     to the coordinate at miR sequence. 
     """
     n, m = len(miR_int), len(mR_int)
-    assert n == 22
     score_matrix = np.zeros((n + 1, m + 1), dtype=np.float32)
     best_score = 0.
     best_score_i = 0

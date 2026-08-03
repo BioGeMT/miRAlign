@@ -44,7 +44,6 @@ def miRAlign(mirna_list, gene_list, label_list,
              G_gene_prior = None,
              prior_precision = 0,
              label_prior = None,
-             sample_weight=None,
              MAX_ITER=100, tol=1e-3,
              num_threads=1,
              verbose=False):
@@ -78,13 +77,10 @@ def miRAlign(mirna_list, gene_list, label_list,
     assert len(mirna_list) == len(gene_list)
     assert len(mirna_list) == len(label_list)
     pair_count = len(mirna_list)
+    if pair_count == 0:
+        raise ValueError("miRAlign requires at least one sequence pair.")
 
     label_list = np.array(label_list)
-    if sample_weight is None:
-        sample_weight = np.ones(pair_count)
-    else:
-        sample_weight = np.asarray(sample_weight, dtype=float)
-        assert len(sample_weight) == pair_count
 
     if label_prior is not None:
         label_probs = label_prior/np.sum(label_prior, axis=1, keepdims=True)
@@ -104,6 +100,18 @@ def miRAlign(mirna_list, gene_list, label_list,
     G_miR = starting_point['G_miR']
     G_gene = starting_point['G_gene']
     alpha = starting_point['alpha']
+    if M.shape != (4, 4, miRNA_length):
+        raise ValueError(f"M must have shape (4, 4, {miRNA_length}); got {M.shape}.")
+    if G_miR.shape != (miRNA_length - 1,):
+        raise ValueError(f"G_miR must have shape ({miRNA_length - 1},); got {G_miR.shape}.")
+    if G_gene.shape != (miRNA_length,):
+        raise ValueError(f"G_gene must have shape ({miRNA_length},); got {G_gene.shape}.")
+    if M_prior is not None and M_prior.shape != M.shape:
+        raise ValueError(f"M_prior must have shape {M.shape}; got {M_prior.shape}.")
+    if G_miR_prior is not None and G_miR_prior.shape != G_miR.shape:
+        raise ValueError(f"G_miR_prior must have shape {G_miR.shape}; got {G_miR_prior.shape}.")
+    if G_gene_prior is not None and G_gene_prior.shape != G_gene.shape:
+        raise ValueError(f"G_gene_prior must have shape {G_gene.shape}; got {G_gene_prior.shape}.")
     if verbose:
         print('Initial alpha:', alpha)
 
@@ -157,8 +165,6 @@ def miRAlign(mirna_list, gene_list, label_list,
         scores = np.array([x[0] for x in alignments])
         scores_pos = scores[label_list==1]
         scores_neg = scores[label_list==0]
-        weights_pos = sample_weight[label_list==1]
-        weights_neg = sample_weight[label_list==0]
         auprc_trajectory.append(average_precision_score(label_list, scores))
         curr_logl = logit_logl(scores_pos, scores_neg, alpha,
                label_observation_parameters = label_prior,
@@ -169,9 +175,7 @@ def miRAlign(mirna_list, gene_list, label_list,
                M_prior = M_prior,
                G_miR_prior = G_miR_prior,
                G_gene_prior = G_gene_prior,
-               lbd = prior_precision,
-               weights_pos=weights_pos,
-               weights_neg=weights_neg)
+               lbd = prior_precision)
         loglik_trajectory.append(curr_logl)
         if verbose:
             print('Current loglik:', curr_logl)
@@ -193,16 +197,12 @@ def miRAlign(mirna_list, gene_list, label_list,
                                M_prior = M_prior,
                                G_miR_prior = G_miR_prior,
                                G_gene_prior = G_gene_prior,
-                               lbd = prior_precision,
-                               weights_pos=weights_pos,
-                               weights_neg=weights_neg)
+                               lbd = prior_precision)
 
         def alpha_fprime(x):
             return  -logit_derivative_alpha(scores_pos, scores_neg,
                                             x,
-                                            label_probs,
-                                            weights_pos=weights_pos,
-                                            weights_neg=weights_neg)
+                                            label_probs)
         alpha = minimize(alpha_target,
                          alpha,
                          jac=alpha_fprime,
@@ -240,9 +240,7 @@ def miRAlign(mirna_list, gene_list, label_list,
                                    M_prior = M_prior,
                                    G_miR_prior = G_miR_prior,
                                    G_gene_prior = G_gene_prior,
-                                   lbd = prior_precision,
-                                   weights_pos=weights_pos,
-                                   weights_neg=weights_neg)
+                                   lbd = prior_precision)
 
             def eta_fprime(z):
                 """
@@ -255,9 +253,7 @@ def miRAlign(mirna_list, gene_list, label_list,
                                    scores_neg=scores_neg,
                                    alpha=alpha,
                                    label_observation_parameters = label_prior,
-                                   label_observation_probs = prob_array,
-                                   weights_pos=weights_pos,
-                                   weights_neg=weights_neg)
+                                   label_observation_probs = prob_array)
                 dx_dz = x*(1-x)
                 return dL_dx * dx_dz
             
@@ -293,8 +289,7 @@ def miRAlign(mirna_list, gene_list, label_list,
                              G_miR_prior=G_miR_prior,
                              G_gene_prior=G_gene_prior,
                              lbd=prior_precision,
-                             label_observation_probs = label_probs,
-                             sample_weight=sample_weight
+                             label_observation_probs = label_probs
                              )
         G_miR += step_theta['G_miR_step']
         G_gene += step_theta['G_gene_step']

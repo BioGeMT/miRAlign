@@ -28,24 +28,6 @@ def label_prior_from_name(name: str):
     raise ValueError(f"Unknown label prior: {name}")
 
 
-def sample_weight_from_name(name: str, labels) -> np.ndarray | None:
-    labels = np.asarray(labels, dtype=int)
-    if name == "none":
-        return None
-    if name == "pos2":
-        weights = np.ones(len(labels), dtype=float)
-        weights[labels == 1] = 2.0
-        return weights
-    if name == "balanced":
-        weights = np.ones(len(labels), dtype=float)
-        for label in [0, 1]:
-            mask = labels == label
-            if np.any(mask):
-                weights[mask] = len(labels) / (2 * np.sum(mask))
-        return weights
-    raise ValueError(f"Unknown class weight: {name}")
-
-
 def priors_from_precision(prior_precision: float, mirna_length: int):
     if float(prior_precision) <= 0:
         return None, None, None
@@ -72,7 +54,6 @@ def fit_configuration(fit_inputs, config: dict):
         G_gene_prior=G_gene_prior,
         prior_precision=float(config["prior_precision"]),
         label_prior=label_prior_from_name(config["label_prior"]),
-        sample_weight=sample_weight_from_name(config["class_weight"], fit_inputs[2]),
         MAX_ITER=int(config["max_iter"]),
         num_threads=int(config["num_threads"]),
         verbose=False,

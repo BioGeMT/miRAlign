@@ -64,16 +64,16 @@ def _subgradient_descent_step(
     G_gene_prior=None,
     lbd=0,
     label_observation_probs=None,
-    sample_weight=None,
     verbose=False,
 ):
     del verbose
+    mirna_length = current_M.shape[-1] if current_M is not None else 22
     M_subd, G_miR_subd, G_gene_subd = logit_subderivative_theta(
         posloc_alignments,
         labels,
         alpha,
         label_observation_probs,
-        sample_weight,
+        mirna_length=mirna_length,
     )
 
     if current_M is not None and M_prior is not None:
@@ -112,7 +112,6 @@ def create_subgradient_step(step_factor, step_power, power_offset):
         G_gene_prior=None,
         lbd=0,
         label_observation_probs=None,
-        sample_weight=None,
         verbose=False,
     ):
         return _subgradient_descent_step(
@@ -131,7 +130,6 @@ def create_subgradient_step(step_factor, step_power, power_offset):
             G_gene_prior=G_gene_prior,
             lbd=lbd,
             label_observation_probs=label_observation_probs,
-            sample_weight=sample_weight,
             verbose=verbose,
         )
 

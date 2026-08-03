@@ -24,6 +24,11 @@ sampling. Configurations are ranked by validation AUPRC. The selected
 configuration is then refit on the full training split and evaluated on the
 requested held-out splits.
 
+Use `--mirna-length` to choose which miRNA length to model. The default is `22`.
+All training, validation, and evaluation frames are filtered to that length
+before fitting or scoring, so separate runs can produce length-specific model
+implementations and outputs.
+
 To keep the grid search tractable, each grid configuration is scored only on
 the fit and validation partitions. Held-out miRBench evaluation splits are
 scored only for the selected grid model and for the final refit model.
@@ -71,10 +76,6 @@ symmetric_80_20:
  [200, 800]]
 ```
 
-This is different from `class_weight`: `label_prior` models possible label
-noise, while `class_weight` changes how much positive and negative examples
-contribute to the optimization.
-
 ## Grid
 
 The default grid is intentionally bounded because miRAlign learns
@@ -88,14 +89,14 @@ step_scale: 0.00001, 0.000012, 0.00005, 0.0001, 0.0005
 step_decay_burnin: 300
 prior_precision: 0, 1
 label_prior: none, symmetric_95_5, symmetric_90_10, symmetric_80_20
-class_weight: none, balanced, pos2
 max_iter: 100
 ```
 
 The workflow writes:
 
 ```text
-results/case_study_for_mirna/<dataset>_<run-tag>/
+results/case_study_for_mirna/<run-tag>/
+  dataset_summary.csv         raw and filtered split counts
   summary.csv                 grid summaries with fit/validation metrics
   metrics.csv                 grid fit/validation metrics
   pr_points.csv               grid fit/validation precision-recall curves
@@ -143,12 +144,12 @@ reasonable starting point is:
 uv run python case_study_for_mirna/case_study_mirna.py \
   --dataset hejret \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
+  --mirna-length 22 \
   --aligners local,glocal \
   --step-scales 0.00001,0.000012,0.00005,0.0001,0.0005 \
   --step-decay-burnins 300 \
   --prior-precisions 0,1 \
   --label-priors none,symmetric_95_5,symmetric_90_10,symmetric_80_20 \
-  --class-weights none,balanced,pos2 \
   --max-iters 100 \
   --final-max-iter 500 \
   --num-threads 16 \
@@ -162,12 +163,12 @@ uv run python case_study_for_mirna/case_study_mirna.py \
 uv run python case_study_for_mirna/case_study_mirna.py \
   --dataset manakov \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
+  --mirna-length 22 \
   --aligners local,glocal \
   --step-scales 0.00001,0.000012,0.00005,0.0001,0.0005 \
   --step-decay-burnins 300 \
   --prior-precisions 0,1 \
   --label-priors none,symmetric_95_5,symmetric_90_10,symmetric_80_20 \
-  --class-weights none,balanced,pos2 \
   --max-iters 100 \
   --final-max-iter 500 \
   --num-threads 16 \
@@ -185,12 +186,12 @@ For a quick smoke run, limit the grid and skip the final refit:
 uv run python case_study_for_mirna/case_study_mirna.py \
   --dataset hejret \
   --eval-splits hejret_test \
+  --mirna-length 22 \
   --aligners local \
   --step-scales 0.00001 \
   --step-decay-burnins 300 \
   --prior-precisions 0 \
   --label-priors none \
-  --class-weights none \
   --max-iters 1 \
   --final-max-iter 0 \
   --num-threads 1 \
@@ -204,22 +205,9 @@ Saved models can be evaluated without refitting:
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py \
   --evaluate-only \
-  --trained-model results/case_study_for_mirna/hejret_smoke/best_grid_model/model.pkl \
+  --trained-model results/case_study_for_mirna/smoke/best_grid_model/model.pkl \
   --dataset hejret \
   --eval-splits hejret_test \
   --num-threads 8 \
   --run-tag evaluate_saved_model
 ```
-
-## Core changes made for the case study
-
-- Restored the likelihood and subgradient helpers that were split out of
-  `src/miralign.py` but not committed as module files.
-- Restored `create_subgradient_step` in `src/optimization_functions.py`.
-- Implemented `logreg_starting_point` as a fixed Hejret/DiscrimAlign baseline
-  initializer, matching the historical miRAlign notebooks.
-- Fixed the glocal alignment wrapper so backtracked gaps are rendered with the
-  gap-aware nucleotide alphabet.
-- Added optional sample weighting to miRAlign likelihood, alpha optimization,
-  and subgradient updates for the `none`, `balanced`, and `pos2` case-study
-  class-weight settings.

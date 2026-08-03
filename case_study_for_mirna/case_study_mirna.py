@@ -42,7 +42,7 @@ CONFIG_KEYS = [
     "step_decay_burnin",
     "prior_precision",
     "label_prior",
-    "class_weight",
+    "mirna_length",
     "num_threads",
 ]
 
@@ -113,6 +113,7 @@ def parse_args():
     parser.add_argument("--eval-files", default=None, help="Comma-separated user evaluation files, name=path.tsv or path.tsv.")
     parser.add_argument("--results-dir", default="results/case_study_for_mirna")
     parser.add_argument("--run-tag", default="")
+    parser.add_argument("--mirna-length", type=int, default=22, help="Keep only rows with this miRNA length.")
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--aligners", default="local,glocal")
@@ -125,7 +126,6 @@ def parse_args():
     )
     parser.add_argument("--prior-precisions", default="0,1")
     parser.add_argument("--label-priors", default="none,symmetric_95_5,symmetric_90_10,symmetric_80_20")
-    parser.add_argument("--class-weights", default="none,balanced,pos2")
     parser.add_argument("--max-iters", default="100")
     parser.add_argument("--final-max-iter", type=int, default=500)
     parser.add_argument("--num-threads", type=int, default=1)
@@ -140,8 +140,47 @@ def parse_args():
     return args
 
 
+def filter_by_mirna_length(frame: pd.DataFrame, mirna_length: int) -> pd.DataFrame:
+    return frame[frame["noncodingRNA"].astype(str).str.len() == mirna_length].copy().reset_index(drop=True)
+
+
+def dataset_summary_row(split_name: str, raw_frame: pd.DataFrame, filtered_frame: pd.DataFrame, mirna_length: int) -> dict:
+    if filtered_frame.empty:
+        mean_mirnas_per_gene = np.nan
+    else:
+        mean_mirnas_per_gene = (
+            filtered_frame.groupby("gene")["noncodingRNA"].nunique().mean()
+        )
+    return {
+        "split": split_name,
+        "mirna_length": mirna_length,
+        "raw_pairs": len(raw_frame),
+        "filtered_pairs": len(filtered_frame),
+        "filtered_unique_mirnas": filtered_frame["noncodingRNA"].nunique(),
+        "filtered_unique_genes": filtered_frame["gene"].nunique(),
+        "filtered_unique_pairs": filtered_frame[["noncodingRNA", "gene"]].drop_duplicates().shape[0],
+        "filtered_mean_mirnas_per_gene": float(mean_mirnas_per_gene) if np.isfinite(mean_mirnas_per_gene) else np.nan,
+        "filtered_positive_pairs": int(filtered_frame["label"].astype(int).sum()) if not filtered_frame.empty else 0,
+        "filtered_negative_pairs": int((filtered_frame["label"].astype(int) == 0).sum()) if not filtered_frame.empty else 0,
+    }
+
+
+def write_dataset_summary(path: str | Path, frames_by_split: dict[str, tuple[pd.DataFrame, pd.DataFrame]], mirna_length: int) -> None:
+    rows = [
+        dataset_summary_row(split_name, raw_frame, filtered_frame, mirna_length)
+        for split_name, (raw_frame, filtered_frame) in frames_by_split.items()
+    ]
+    write_rows(path, rows)
+
+
+def require_training_frame(frame: pd.DataFrame, split_name: str) -> None:
+    if frame.empty:
+        raise ValueError(f"No rows remain in {split_name} after miRNA-length filtering.")
+    if frame["label"].astype(int).nunique() < 2:
+        raise ValueError(f"{split_name} must contain both positive and negative labels after miRNA-length filtering.")
+
+
 def prepare_inputs(frame: pd.DataFrame):
-    frame = frame[frame["noncodingRNA"].astype(str).str.len() == 22].copy()
     seq_a = frame["noncodingRNA"].astype(str).tolist()
     seq_b = [str(Seq(seq).reverse_complement()) for seq in frame["gene"].astype(str)]
     labels = frame["label"].astype(int).tolist()
@@ -149,6 +188,7 @@ def prepare_inputs(frame: pd.DataFrame):
 
 
 def load_frames(args):
+    summary_frames = {}
     custom_evaluation_frames = {} if args.skip_evaluation else load_custom_evaluation_frames(args.eval_files)
     train_alias, default_test_alias = PAIRED_DATASET_SPLITS[args.dataset]
     if args.skip_evaluation:
@@ -158,30 +198,42 @@ def load_frames(args):
         invalid = [name for name in split_names if name not in SUPPORTED_DATASET_SPLITS]
         if invalid:
             raise ValueError(f"Invalid evaluation split aliases: {invalid}")
-        evaluation_frames = {name: get_dataset_dataframe(name).reset_index(drop=True) for name in split_names}
-        overlap = sorted(set(evaluation_frames).intersection(custom_evaluation_frames))
+        raw_evaluation_frames = {name: get_dataset_dataframe(name).reset_index(drop=True) for name in split_names}
+        overlap = sorted(set(raw_evaluation_frames).intersection(custom_evaluation_frames))
         if overlap:
             raise ValueError(f"Custom evaluation names duplicate miRBench split names: {overlap}")
-        evaluation_frames.update(custom_evaluation_frames)
+        raw_evaluation_frames.update(custom_evaluation_frames)
+        evaluation_frames = {}
+        for name, raw_frame in raw_evaluation_frames.items():
+            filtered_frame = filter_by_mirna_length(raw_frame, args.mirna_length)
+            summary_frames[name] = (raw_frame, filtered_frame)
+            evaluation_frames[name] = filtered_frame
     if args.evaluate_only:
         empty_frame = pd.DataFrame(columns=REQUIRED_EVALUATION_COLUMNS)
-        return empty_frame, empty_frame, empty_frame, evaluation_frames
+        return empty_frame, empty_frame, empty_frame, evaluation_frames, summary_frames
 
-    train_frame = get_dataset_dataframe(train_alias).reset_index(drop=True)
+    raw_train_frame = get_dataset_dataframe(train_alias).reset_index(drop=True)
+    train_frame = filter_by_mirna_length(raw_train_frame, args.mirna_length)
+    summary_frames[train_alias] = (raw_train_frame, train_frame)
+    require_training_frame(train_frame, train_alias)
     fit_frame, validation_frame = train_test_split(
         train_frame,
         test_size=args.validation_fraction,
         random_state=args.split_seed,
         stratify=train_frame["label"].astype(int),
     )
-    return train_frame, fit_frame.reset_index(drop=True), validation_frame.reset_index(drop=True), evaluation_frames
+    fit_frame = fit_frame.reset_index(drop=True)
+    validation_frame = validation_frame.reset_index(drop=True)
+    summary_frames["fit"] = (fit_frame, fit_frame)
+    summary_frames["validation"] = (validation_frame, validation_frame)
+    return train_frame, fit_frame, validation_frame, evaluation_frames, summary_frames
 
 
 def build_config(dataset_label, index, values, args):
-    aligner, step_scale, step_decay_burnin, prior_precision, label_prior, class_weight, max_iter = values
+    aligner, step_scale, step_decay_burnin, prior_precision, label_prior, max_iter = values
     config_name = (
         f"cfg_{index:04d}_{aligner}_s{step_scale}_d{step_decay_burnin}"
-        f"_p{prior_precision}_{label_prior}_{class_weight}_i{max_iter}"
+        f"_p{prior_precision}_{label_prior}_i{max_iter}"
     )
     return {
         "dataset": dataset_label,
@@ -193,7 +245,7 @@ def build_config(dataset_label, index, values, args):
         "step_decay_burnin": int(step_decay_burnin),
         "prior_precision": float(prior_precision),
         "label_prior": label_prior,
-        "class_weight": class_weight,
+        "mirna_length": int(args.mirna_length),
         "max_iter": int(max_iter),
         "num_threads": int(args.num_threads),
     }
@@ -314,10 +366,11 @@ def copy_artifact_dir(source_dir: str | Path, destination_dir: str | Path) -> No
 
 def main():
     args = parse_args()
-    train_frame, fit_frame, validation_frame, evaluation_frames = load_frames(args)
-    run_suffix = f"_{args.run_tag}" if args.run_tag else ""
-    run_dir = Path(args.results_dir) / f"{args.dataset}{run_suffix}"
+    train_frame, fit_frame, validation_frame, evaluation_frames, summary_frames = load_frames(args)
+    run_name = args.run_tag if args.run_tag else args.dataset
+    run_dir = Path(args.results_dir) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
+    write_dataset_summary(run_dir / "dataset_summary.csv", summary_frames, args.mirna_length)
     evaluation_inputs = {name: prepare_inputs(frame) for name, frame in evaluation_frames.items()}
 
     if args.evaluate_only:
@@ -339,7 +392,6 @@ def main():
             [int(value) for value in csv_values(args.step_decay_burnins)],
             [float(value) for value in csv_values(args.prior_precisions)],
             csv_values(args.label_priors),
-            csv_values(args.class_weights),
             [int(value) for value in csv_values(args.max_iters)],
         )
     )

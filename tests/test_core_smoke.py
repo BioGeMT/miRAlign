@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from case_study_for_mirna.modeling import label_prior_from_name
-from case_study_for_mirna.case_study_mirna import evaluate_existing_model
+from case_study_for_mirna.case_study_mirna import evaluate_existing_model, write_dataset_summary
 from src.miralign import miRAlign
 from src.optimization_functions import (
     BASELINE_ALPHA,
@@ -70,20 +70,20 @@ def test_miralign_one_iteration_smoke():
     assert len(result["loglik_trajectory"]) == 1
 
 
-def test_miralign_one_iteration_with_sample_weights():
+def test_miralign_one_iteration_with_nondefault_mirna_length():
     result = miRAlign(
-        ["A" * 22, "C" * 22],
+        ["A" * 21, "C" * 21],
         ["A" * 30, "T" * 30],
         [1, 0],
         pos_aware_align_local,
         create_subgradient_step(0.00001, 0.5, 300),
-        sample_weight=np.array([2.0, 1.0]),
         MAX_ITER=1,
         num_threads=1,
     )
 
-    assert np.isfinite(result["final_loglik"])
-    assert len(result["subgradient_norm_trajectory"]) == 1
+    assert result["M"].shape == (4, 4, 21)
+    assert result["G_miR"].shape == (20,)
+    assert result["G_gene"].shape == (21,)
 
 
 def test_miralign_one_iteration_with_label_prior():
@@ -129,3 +129,26 @@ def test_evaluate_existing_model_writes_requested_splits(tmp_path):
 
     metrics = pd.read_csv(tmp_path / "metrics.csv")
     assert set(metrics["split"]) == {"fit", "heldout"}
+
+
+def test_write_dataset_summary_reports_filtered_counts(tmp_path):
+    raw = pd.DataFrame(
+        {
+            "noncodingRNA": ["A" * 22, "C" * 22, "G" * 21],
+            "gene": ["gene1", "gene1", "gene2"],
+            "label": [1, 0, 1],
+        }
+    )
+    filtered = raw[raw["noncodingRNA"].str.len() == 22].reset_index(drop=True)
+
+    write_dataset_summary(tmp_path / "dataset_summary.csv", {"train": (raw, filtered)}, 22)
+
+    summary = pd.read_csv(tmp_path / "dataset_summary.csv")
+    row = summary.iloc[0]
+    assert row["split"] == "train"
+    assert row["raw_pairs"] == 3
+    assert row["filtered_pairs"] == 2
+    assert row["filtered_unique_mirnas"] == 2
+    assert row["filtered_unique_genes"] == 1
+    assert row["filtered_unique_pairs"] == 2
+    assert row["filtered_mean_mirnas_per_gene"] == 2.0
