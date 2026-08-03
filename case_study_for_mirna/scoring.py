@@ -60,6 +60,10 @@ def evaluate_scores(labels, scores):
     scores = np.asarray(scores, dtype=float)
     if scores.size == 0 or not np.isfinite(scores).all():
         return empty_evaluation()
+    if np.unique(labels).size < 2:
+        result = empty_evaluation()
+        result["average_precision"] = float(np.mean(labels))
+        return result
     precision, recall, pr_thresholds = precision_recall_curve(labels, scores)
     average_precision = average_precision_score(labels, scores)
     try:
@@ -80,4 +84,3 @@ def evaluate_scores(labels, scores):
         "tpr": tpr,
         "roc_thresholds": roc_thresholds,
     }
-

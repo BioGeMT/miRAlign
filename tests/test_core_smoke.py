@@ -4,6 +4,7 @@ import pandas as pd
 from case_study_for_mirna.modeling import label_prior_from_name, sample_weight_from_name
 from case_study_for_mirna.case_study_mirna import (
     evaluate_existing_model,
+    prepare_inputs,
     split_train_validation,
     write_dataset_diagnostics,
     write_dataset_summary,
@@ -197,15 +198,28 @@ def test_evaluate_existing_model_writes_requested_splits(tmp_path):
         "alpha": params["alpha"],
     }
     config = {"config": "baseline", "num_threads": 1}
-    inputs = {
-        "fit": (["A" * 22, "C" * 22], ["A" * 30, "T" * 30], [1, 0]),
-        "heldout": (["A" * 22, "C" * 22], ["A" * 30, "T" * 30], [1, 0]),
-    }
+    fit_frame = pd.DataFrame(
+        {
+            "noncodingRNA": ["A" * 22, "C" * 21],
+            "gene": ["A" * 30, "T" * 30],
+            "label": [1, 0],
+        }
+    )
+    heldout_frame = pd.DataFrame(
+        {
+            "noncodingRNA": ["A" * 22, "G" * 21],
+            "gene": ["A" * 30, "G" * 30],
+            "label": [1, 0],
+        }
+    )
+    inputs = {"fit": prepare_inputs(fit_frame), "heldout": prepare_inputs(heldout_frame)}
 
     evaluate_existing_model(config, model, inputs, tmp_path)
 
     metrics = pd.read_csv(tmp_path / "metrics.csv")
     assert set(metrics["split"]) == {"fit", "heldout"}
+    slices = pd.read_csv(tmp_path / "metric_slices.csv")
+    assert {"mirna_length", "mirna_seen", "gene_seen", "mirna_frequency_bin", "gene_frequency_bin"}.issubset(set(slices["slice_type"]))
 
 
 def test_write_dataset_summary_reports_length_counts(tmp_path):

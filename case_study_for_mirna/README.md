@@ -112,6 +112,7 @@ results/case_study_for_mirna/<run-tag>/
   split_overlap.csv
   summary.csv                 grid summaries with fit/validation metrics
   metrics.csv                 grid fit/validation metrics
+  metric_slices.csv           metrics by length, seen/unseen status, and frequency bins
   pr_points.csv               grid fit/validation precision-recall curves
   roc_points.csv              grid fit/validation ROC curves
   trajectories.csv
@@ -120,6 +121,7 @@ results/case_study_for_mirna/<run-tag>/
     evaluation/
       summary.csv             selected grid model held-out metrics
       metrics.csv
+      metric_slices.csv
       pr_points.csv
       roc_points.csv
     model.pkl
@@ -128,6 +130,7 @@ results/case_study_for_mirna/<run-tag>/
   final_refit/
     summary.csv               final refit train/held-out metrics
     metrics.csv
+    metric_slices.csv
     pr_points.csv
     roc_points.csv
 ```

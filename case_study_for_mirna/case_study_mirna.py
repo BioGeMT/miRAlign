@@ -324,6 +324,10 @@ def prepare_inputs(frame: pd.DataFrame):
     return seq_a, seq_b, labels, frame
 
 
+def input_frame(inputs) -> pd.DataFrame | None:
+    return inputs[3] if len(inputs) > 3 else None
+
+
 def infer_model_length(frames: list[pd.DataFrame]) -> int:
     lengths = []
     for frame in frames:
@@ -426,8 +430,61 @@ def export_model_artifacts(model: dict, config: dict, row: dict, trajectories: l
     }
 
 
+def frequency_bin(count: int) -> str:
+    if count <= 0:
+        return "unseen"
+    if count == 1:
+        return "singleton"
+    if count <= 5:
+        return "low_2_5"
+    if count <= 20:
+        return "medium_6_20"
+    return "high_gt20"
+
+
+def evaluation_slice_rows(config: dict, split_name: str, frame: pd.DataFrame | None, labels, scores, reference_frame: pd.DataFrame | None) -> list[dict]:
+    if frame is None or reference_frame is None or len(frame) == 0:
+        return []
+    frame = frame.reset_index(drop=True).copy()
+    labels = np.asarray(labels, dtype=int)
+    scores = np.asarray(scores, dtype=float)
+    reference_mirnas = set(reference_frame["noncodingRNA"].astype(str))
+    reference_genes = set(reference_frame["gene"].astype(str))
+    mirna_counts = reference_frame["noncodingRNA"].astype(str).value_counts()
+    gene_counts = reference_frame["gene"].astype(str).value_counts()
+    slice_specs = []
+    slice_specs.append(("mirna_length", frame["noncodingRNA"].astype(str).str.len().astype(str)))
+    slice_specs.append(("mirna_seen", frame["noncodingRNA"].astype(str).isin(reference_mirnas).map({True: "seen", False: "unseen"})))
+    slice_specs.append(("gene_seen", frame["gene"].astype(str).isin(reference_genes).map({True: "seen", False: "unseen"})))
+    slice_specs.append(("mirna_frequency_bin", frame["noncodingRNA"].astype(str).map(mirna_counts).fillna(0).astype(int).map(frequency_bin)))
+    slice_specs.append(("gene_frequency_bin", frame["gene"].astype(str).map(gene_counts).fillna(0).astype(int).map(frequency_bin)))
+
+    rows = []
+    for slice_type, groups in slice_specs:
+        for slice_value in sorted(groups.dropna().unique(), key=str):
+            mask = groups == slice_value
+            stats = evaluate_scores(labels[mask], scores[mask])
+            rows.append(
+                {
+                    **config,
+                    "split": split_name,
+                    "slice_type": slice_type,
+                    "slice_value": slice_value,
+                    "pairs": int(np.sum(mask)),
+                    "positives": int(np.sum(labels[mask] == 1)),
+                    "negatives": int(np.sum(labels[mask] == 0)),
+                    "average_precision": stats["average_precision"],
+                    "roc_auc": stats["roc_auc"],
+                    "status": "ok",
+                }
+            )
+    return rows
+
+
 def evaluate_model(config, model, inputs_by_split, run_dir):
-    updates, metrics, pr_points, roc_points, split_stats = {}, [], [], [], {}
+    updates, metrics, metric_slices, pr_points, roc_points, split_stats = {}, [], [], [], [], {}
+    reference_inputs = inputs_by_split.get("fit", inputs_by_split.get("train"))
+    reference_frame = input_frame(reference_inputs) if reference_inputs is not None else None
     for split_name, inputs in inputs_by_split.items():
         print(f"  Scoring split {split_name} ({len(inputs[2])} pairs)", flush=True)
         scores = score_pairs_with_model(inputs[0], inputs[1], model, num_threads=int(config["num_threads"]))
@@ -436,6 +493,7 @@ def evaluate_model(config, model, inputs_by_split, run_dir):
         updates[f"ap_{split_name}"] = stats["average_precision"]
         updates[f"roc_auc_{split_name}"] = stats["roc_auc"]
         metrics.append({**config, "split": split_name, "average_precision": stats["average_precision"], "roc_auc": stats["roc_auc"], "status": "ok"})
+        metric_slices.extend(evaluation_slice_rows(config, split_name, input_frame(inputs), inputs[2], scores, reference_frame))
         pr_points.extend(curve_point_rows(config["config"], split_name, stats, "pr"))
         roc_points.extend(curve_point_rows(config["config"], split_name, stats, "roc"))
     reference_split = "fit" if "fit" in split_stats else "train"
@@ -445,7 +503,7 @@ def evaluate_model(config, model, inputs_by_split, run_dir):
                 continue
             save_pr_plot(split_stats[reference_split], stats, run_dir / "pr_curves" / f"{config['config']}_{reference_split}_vs_{split_name}.png", f"{config['config']}: {reference_split} vs {split_name}", reference_label=reference_split, compare_label=split_name)
             save_roc_plot(split_stats[reference_split], stats, run_dir / "roc_curves" / f"{config['config']}_{reference_split}_vs_{split_name}.png", f"{config['config']}: {reference_split} vs {split_name}", reference_label=reference_split, compare_label=split_name)
-    return updates, metrics, pr_points, roc_points
+    return updates, metrics, metric_slices, pr_points, roc_points
 
 
 def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split, run_dir, skip_evaluation=False):
@@ -454,16 +512,16 @@ def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split,
         result, runtime = fit_configuration(fit_inputs, config)
         row = summarize_result(config, result, runtime)
         model = model_from_result(result, config)
-        updates, metrics, pr_points, roc_points = ({}, [], [], []) if skip_evaluation else evaluate_model(config, model, inputs_by_split, run_dir)
+        updates, metrics, metric_slices, pr_points, roc_points = ({}, [], [], [], []) if skip_evaluation else evaluate_model(config, model, inputs_by_split, run_dir)
         row.update(updates)
         trajectories = build_trajectory_rows(config, result)
         row.update(export_model_artifacts(model, config, row, trajectories, run_dir / "model_artifacts" / config["config"]))
         print(f"Completed {index}/{total_configs}: ok", flush=True)
-        return {"summary": row, "errors": [], "metrics": metrics, "pr_points": pr_points, "roc_points": roc_points, "trajectories": trajectories}
+        return {"summary": row, "errors": [], "metrics": metrics, "metric_slices": metric_slices, "pr_points": pr_points, "roc_points": roc_points, "trajectories": trajectories}
     except Exception as exc:
         row = {**config, "status": "error", "error": repr(exc), "final_loglik": np.nan}
         print(f"Completed {index}/{total_configs}: error {row['error']}", flush=True)
-        return {"summary": row, "errors": [row], "metrics": [], "pr_points": [], "roc_points": [], "trajectories": []}
+        return {"summary": row, "errors": [row], "metrics": [], "metric_slices": [], "pr_points": [], "roc_points": [], "trajectories": []}
 
 
 def evaluate_existing_model(config: dict, model: dict, inputs_by_split: dict, out_dir: str | Path, summary: dict | None = None) -> dict:
@@ -471,15 +529,17 @@ def evaluate_existing_model(config: dict, model: dict, inputs_by_split: dict, ou
     row = {**config, "status": "ok", "error": ""}
     if summary:
         row.update({key: value for key, value in summary.items() if key not in row})
-    updates, metric_rows, pr_rows, roc_rows = evaluate_model(config, model, inputs_by_split, out_dir)
+    updates, metric_rows, metric_slice_rows, pr_rows, roc_rows = evaluate_model(config, model, inputs_by_split, out_dir)
     row.update(updates)
     write_rows(out_dir / "summary.csv", [row])
     write_rows(out_dir / "metrics.csv", metric_rows)
+    write_rows(out_dir / "metric_slices.csv", metric_slice_rows)
     write_rows(out_dir / "pr_points.csv", pr_rows)
     write_rows(out_dir / "roc_points.csv", roc_rows)
     return {
         "summary": row,
         "metrics": metric_rows,
+        "metric_slices": metric_slice_rows,
         "pr_points": pr_rows,
         "roc_points": roc_rows,
     }
@@ -541,7 +601,7 @@ def main():
     configs = [build_config(args.dataset, index, values, args) for index, values in enumerate(grid, start=1)]
     print(f"Running {len(configs)} configurations...", flush=True)
 
-    summary_rows, error_rows, metric_rows, pr_rows, roc_rows, trajectory_rows = [], [], [], [], [], []
+    summary_rows, error_rows, metric_rows, metric_slice_rows, pr_rows, roc_rows, trajectory_rows = [], [], [], [], [], [], []
     if args.config_workers == 1:
         results = [
             run_configuration(index, len(configs), config, fit_inputs, grid_inputs_by_split, run_dir, args.skip_evaluation)
@@ -556,6 +616,7 @@ def main():
         summary_rows.append(result["summary"])
         error_rows.extend(result["errors"])
         metric_rows.extend(result["metrics"])
+        metric_slice_rows.extend(result["metric_slices"])
         pr_rows.extend(result["pr_points"])
         roc_rows.extend(result["roc_points"])
         trajectory_rows.extend(result["trajectories"])
@@ -582,12 +643,13 @@ def main():
         result, runtime = fit_configuration(train_inputs, final_config)
         final_row = summarize_result(final_config, result, runtime)
         final_model = model_from_result(result, final_config)
-        final_updates, final_metrics, final_pr, final_roc = evaluate_model(final_config, final_model, {"train": train_inputs, **evaluation_inputs}, run_dir / "final_refit")
+        final_updates, final_metrics, final_metric_slices, final_pr, final_roc = evaluate_model(final_config, final_model, {"train": train_inputs, **evaluation_inputs}, run_dir / "final_refit")
         final_row.update(final_updates)
         final_trajectories = build_trajectory_rows(final_config, result)
         final_row.update(export_model_artifacts(final_model, final_config, final_row, final_trajectories, run_dir / "final_refit" / "model"))
         write_rows(run_dir / "final_refit" / "summary.csv", [final_row])
         write_rows(run_dir / "final_refit" / "metrics.csv", final_metrics)
+        write_rows(run_dir / "final_refit" / "metric_slices.csv", final_metric_slices)
         write_rows(run_dir / "final_refit" / "pr_points.csv", final_pr)
         write_rows(run_dir / "final_refit" / "roc_points.csv", final_roc)
         write_rows(run_dir / "final_refit" / "trajectory.csv", final_trajectories)
@@ -595,6 +657,7 @@ def main():
     write_rows(run_dir / "summary.csv", summary_rows)
     write_rows(run_dir / "errors.csv", error_rows)
     write_rows(run_dir / "metrics.csv", metric_rows)
+    write_rows(run_dir / "metric_slices.csv", metric_slice_rows)
     write_rows(run_dir / "pr_points.csv", pr_rows)
     write_rows(run_dir / "roc_points.csv", roc_rows)
     write_rows(run_dir / "trajectories.csv", trajectory_rows)
