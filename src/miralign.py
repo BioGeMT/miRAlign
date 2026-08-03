@@ -77,6 +77,8 @@ def miRAlign(mirna_list, gene_list, label_list,
     assert len(mirna_list) == len(gene_list)
     assert len(mirna_list) == len(label_list)
     pair_count = len(mirna_list)
+    if pair_count == 0:
+        raise ValueError("miRAlign requires at least one sequence pair.")
 
     label_list = np.array(label_list)
 
@@ -98,6 +100,18 @@ def miRAlign(mirna_list, gene_list, label_list,
     G_miR = starting_point['G_miR']
     G_gene = starting_point['G_gene']
     alpha = starting_point['alpha']
+    if M.shape != (4, 4, miRNA_length):
+        raise ValueError(f"M must have shape (4, 4, {miRNA_length}); got {M.shape}.")
+    if G_miR.shape != (miRNA_length - 1,):
+        raise ValueError(f"G_miR must have shape ({miRNA_length - 1},); got {G_miR.shape}.")
+    if G_gene.shape != (miRNA_length,):
+        raise ValueError(f"G_gene must have shape ({miRNA_length},); got {G_gene.shape}.")
+    if M_prior is not None and M_prior.shape != M.shape:
+        raise ValueError(f"M_prior must have shape {M.shape}; got {M_prior.shape}.")
+    if G_miR_prior is not None and G_miR_prior.shape != G_miR.shape:
+        raise ValueError(f"G_miR_prior must have shape {G_miR.shape}; got {G_miR_prior.shape}.")
+    if G_gene_prior is not None and G_gene_prior.shape != G_gene.shape:
+        raise ValueError(f"G_gene_prior must have shape {G_gene.shape}; got {G_gene_prior.shape}.")
     if verbose:
         print('Initial alpha:', alpha)
 
@@ -249,7 +263,9 @@ def miRAlign(mirna_list, gene_list, label_list,
                              jac=eta_fprime,
                              tol=1e-3)
             if z_star.success is False:
-                raise RuntimeError('Estimation of label probabilities failed. Try decreasing the step size. If the problem persists, let me know about this.')
+                if verbose:
+                    print("Label probability optimization failed; keeping previous label probabilities.")
+                continue
             else:
                 z_star = z_star['x']
             # Step 2.4: Transform back to a vector of probabilities of
@@ -317,5 +333,3 @@ def get_label_posteriors(scores, labels, alpha,
     posterior /= np.sum(posterior, axis=0)
     posterior = posterior.T
     return posterior
-
-
