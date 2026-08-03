@@ -37,8 +37,8 @@ def priors_from_precision(prior_precision: float, mirna_length: int):
 
 def fit_configuration(fit_inputs, config: dict):
     start_time = time.perf_counter()
-    mirna_length = len(fit_inputs[0][0])
-    M_prior, G_miR_prior, G_gene_prior = priors_from_precision(float(config["prior_precision"]), mirna_length)
+    model_length = int(config["model_length"])
+    M_prior, G_miR_prior, G_gene_prior = priors_from_precision(float(config["prior_precision"]), model_length)
     result = miRAlign(
         mirna_list=fit_inputs[0],
         gene_list=fit_inputs[1],
@@ -54,6 +54,7 @@ def fit_configuration(fit_inputs, config: dict):
         G_gene_prior=G_gene_prior,
         prior_precision=float(config["prior_precision"]),
         label_prior=label_prior_from_name(config["label_prior"]),
+        model_length=model_length,
         MAX_ITER=int(config["max_iter"]),
         num_threads=int(config["num_threads"]),
         verbose=False,

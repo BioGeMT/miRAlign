@@ -30,6 +30,7 @@ def logreg_starting_point(
     mirna_list,
     gene_list,
     label_list,
+    model_length=None,
     match_weight=5,
     mismatch_weight=-4,
     gap_weight=-6,
@@ -43,9 +44,9 @@ def logreg_starting_point(
     constants rather than fitting a new starting point for each run.
     """
     del gene_list, label_list, match_weight, mismatch_weight, gap_weight, num_threads, max_sample_size
-    mirna_lengths = {len(str(mirna)) for mirna in mirna_list}
-    mirna_length = mirna_lengths.pop() if len(mirna_lengths) == 1 else 22
-    return baseline_parameters(mirna_length)
+    if model_length is None:
+        model_length = max(len(str(mirna)) for mirna in mirna_list)
+    return baseline_parameters(int(model_length))
 
 
 def _subgradient_descent_step(

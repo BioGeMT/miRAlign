@@ -70,20 +70,21 @@ def test_miralign_one_iteration_smoke():
     assert len(result["loglik_trajectory"]) == 1
 
 
-def test_miralign_one_iteration_with_nondefault_mirna_length():
+def test_miralign_one_iteration_with_mixed_mirna_lengths():
     result = miRAlign(
-        ["A" * 21, "C" * 21],
+        ["A" * 21, "C" * 22],
         ["A" * 30, "T" * 30],
         [1, 0],
         pos_aware_align_local,
         create_subgradient_step(0.00001, 0.5, 300),
+        model_length=22,
         MAX_ITER=1,
         num_threads=1,
     )
 
-    assert result["M"].shape == (4, 4, 21)
-    assert result["G_miR"].shape == (20,)
-    assert result["G_gene"].shape == (21,)
+    assert result["M"].shape == (4, 4, 22)
+    assert result["G_miR"].shape == (21,)
+    assert result["G_gene"].shape == (22,)
 
 
 def test_miralign_one_iteration_with_label_prior():
@@ -131,7 +132,7 @@ def test_evaluate_existing_model_writes_requested_splits(tmp_path):
     assert set(metrics["split"]) == {"fit", "heldout"}
 
 
-def test_write_dataset_summary_reports_filtered_counts(tmp_path):
+def test_write_dataset_summary_reports_length_counts(tmp_path):
     raw = pd.DataFrame(
         {
             "noncodingRNA": ["A" * 22, "C" * 22, "G" * 21],
@@ -139,16 +140,14 @@ def test_write_dataset_summary_reports_filtered_counts(tmp_path):
             "label": [1, 0, 1],
         }
     )
-    filtered = raw[raw["noncodingRNA"].str.len() == 22].reset_index(drop=True)
-
-    write_dataset_summary(tmp_path / "dataset_summary.csv", {"train": (raw, filtered)}, 22)
+    write_dataset_summary(tmp_path / "dataset_summary.csv", {"train": raw})
 
     summary = pd.read_csv(tmp_path / "dataset_summary.csv")
-    row = summary.iloc[0]
+    row = summary[summary["row_type"] == "all_lengths"].iloc[0]
     assert row["split"] == "train"
-    assert row["raw_pairs"] == 3
-    assert row["filtered_pairs"] == 2
-    assert row["filtered_unique_mirnas"] == 2
-    assert row["filtered_unique_genes"] == 1
-    assert row["filtered_unique_pairs"] == 2
-    assert row["filtered_mean_mirnas_per_gene"] == 2.0
+    assert row["pairs"] == 3
+    assert row["unique_mirnas"] == 3
+    assert row["unique_genes"] == 2
+    assert row["unique_pairs"] == 3
+    assert row["mean_mirnas_per_gene"] == 1.5
+    assert set(summary["length"].astype(str)) == {"all", "21", "22"}

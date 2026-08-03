@@ -44,6 +44,7 @@ def miRAlign(mirna_list, gene_list, label_list,
              G_gene_prior = None,
              prior_precision = 0,
              label_prior = None,
+             model_length = None,
              MAX_ITER=100, tol=1e-3,
              num_threads=1,
              verbose=False):
@@ -71,14 +72,18 @@ def miRAlign(mirna_list, gene_list, label_list,
     Returns:
     Substution matrix and gap penalties.
     """
-    miRNA_length = set(len(mirna) for mirna in mirna_list)
-    assert len(miRNA_length) == 1, 'miRNA sequences need to have the same length'
-    miRNA_length = miRNA_length.pop()
     assert len(mirna_list) == len(gene_list)
     assert len(mirna_list) == len(label_list)
     pair_count = len(mirna_list)
     if pair_count == 0:
         raise ValueError("miRAlign requires at least one sequence pair.")
+    miRNA_lengths = [len(mirna) for mirna in mirna_list]
+    if model_length is None:
+        miRNA_length = max(miRNA_lengths)
+    else:
+        miRNA_length = int(model_length)
+        if any(length > miRNA_length for length in miRNA_lengths):
+            raise ValueError("miRNA sequences cannot be longer than model_length.")
 
     label_list = np.array(label_list)
 
@@ -91,6 +96,7 @@ def miRAlign(mirna_list, gene_list, label_list,
     # Starting parameters. We use up to 10 000 randomly selected
     # data points, because this doesn't need to be very accurate
     starting_point= logreg_starting_point(mirna_list, gene_list, label_list,
+                                          model_length=miRNA_length,
                                           match_weight = 5,
                                           mismatch_weight = -4,
                                           gap_weight = -6,

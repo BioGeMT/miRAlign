@@ -6,7 +6,6 @@ from pathlib import Path
 
 CONFIG_WORKERS = 4
 THREADS = 16
-MIRNA_LENGTH = "22"
 STEP_SCALES = "0.00001,0.000012,0.00005,0.0001,0.0005"
 MAX_ITERS = "100"
 FINAL_MAX_ITER = "500"
@@ -30,8 +29,6 @@ def run_case(train_family: str, run_tag: str) -> None:
         train_family,
         "--eval-splits",
         EVAL_SPLITS,
-        "--mirna-length",
-        MIRNA_LENGTH,
         "--aligners",
         "local,glocal",
         "--step-scales",

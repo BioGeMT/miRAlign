@@ -24,10 +24,10 @@ sampling. Configurations are ranked by validation AUPRC. The selected
 configuration is then refit on the full training split and evaluated on the
 requested held-out splits.
 
-Use `--mirna-length` to choose which miRNA length to model. The default is `22`.
-All training, validation, and evaluation frames are filtered to that length
-before fitting or scoring, so separate runs can produce length-specific model
-implementations and outputs.
+All miRNA lengths in the loaded splits are included. The model allocates one
+shared position-specific parameter set up to the longest loaded miRNA, while
+shorter miRNAs are kept as real shorter sequences. Their absent tail positions
+do not contribute alignment scores or gradient updates.
 
 To keep the grid search tractable, each grid configuration is scored only on
 the fit and validation partitions. Held-out miRBench evaluation splits are
@@ -96,7 +96,7 @@ The workflow writes:
 
 ```text
 results/case_study_for_mirna/<run-tag>/
-  dataset_summary.csv         raw and filtered split counts
+  dataset_summary.csv         aggregate and per-length split counts
   summary.csv                 grid summaries with fit/validation metrics
   metrics.csv                 grid fit/validation metrics
   pr_points.csv               grid fit/validation precision-recall curves
@@ -144,7 +144,6 @@ reasonable starting point is:
 uv run python case_study_for_mirna/case_study_mirna.py \
   --dataset hejret \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
-  --mirna-length 22 \
   --aligners local,glocal \
   --step-scales 0.00001,0.000012,0.00005,0.0001,0.0005 \
   --step-decay-burnins 300 \
@@ -163,7 +162,6 @@ uv run python case_study_for_mirna/case_study_mirna.py \
 uv run python case_study_for_mirna/case_study_mirna.py \
   --dataset manakov \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
-  --mirna-length 22 \
   --aligners local,glocal \
   --step-scales 0.00001,0.000012,0.00005,0.0001,0.0005 \
   --step-decay-burnins 300 \
@@ -186,7 +184,6 @@ For a quick smoke run, limit the grid and skip the final refit:
 uv run python case_study_for_mirna/case_study_mirna.py \
   --dataset hejret \
   --eval-splits hejret_test \
-  --mirna-length 22 \
   --aligners local \
   --step-scales 0.00001 \
   --step-decay-burnins 300 \

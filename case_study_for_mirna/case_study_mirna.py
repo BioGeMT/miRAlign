@@ -42,7 +42,7 @@ CONFIG_KEYS = [
     "step_decay_burnin",
     "prior_precision",
     "label_prior",
-    "mirna_length",
+    "model_length",
     "num_threads",
 ]
 
@@ -113,7 +113,6 @@ def parse_args():
     parser.add_argument("--eval-files", default=None, help="Comma-separated user evaluation files, name=path.tsv or path.tsv.")
     parser.add_argument("--results-dir", default="results/case_study_for_mirna")
     parser.add_argument("--run-tag", default="")
-    parser.add_argument("--mirna-length", type=int, default=22, help="Keep only rows with this miRNA length.")
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--aligners", default="local,glocal")
@@ -140,44 +139,56 @@ def parse_args():
     return args
 
 
-def filter_by_mirna_length(frame: pd.DataFrame, mirna_length: int) -> pd.DataFrame:
-    return frame[frame["noncodingRNA"].astype(str).str.len() == mirna_length].copy().reset_index(drop=True)
-
-
-def dataset_summary_row(split_name: str, raw_frame: pd.DataFrame, filtered_frame: pd.DataFrame, mirna_length: int) -> dict:
-    if filtered_frame.empty:
+def dataset_summary_rows(split_name: str, frame: pd.DataFrame) -> list[dict]:
+    if frame.empty:
         mean_mirnas_per_gene = np.nan
     else:
         mean_mirnas_per_gene = (
-            filtered_frame.groupby("gene")["noncodingRNA"].nunique().mean()
+            frame.groupby("gene")["noncodingRNA"].nunique().mean()
         )
-    return {
+    rows = [{
         "split": split_name,
-        "mirna_length": mirna_length,
-        "raw_pairs": len(raw_frame),
-        "filtered_pairs": len(filtered_frame),
-        "filtered_unique_mirnas": filtered_frame["noncodingRNA"].nunique(),
-        "filtered_unique_genes": filtered_frame["gene"].nunique(),
-        "filtered_unique_pairs": filtered_frame[["noncodingRNA", "gene"]].drop_duplicates().shape[0],
-        "filtered_mean_mirnas_per_gene": float(mean_mirnas_per_gene) if np.isfinite(mean_mirnas_per_gene) else np.nan,
-        "filtered_positive_pairs": int(filtered_frame["label"].astype(int).sum()) if not filtered_frame.empty else 0,
-        "filtered_negative_pairs": int((filtered_frame["label"].astype(int) == 0).sum()) if not filtered_frame.empty else 0,
-    }
+        "row_type": "all_lengths",
+        "length": "all",
+        "pairs": len(frame),
+        "unique_mirnas": frame["noncodingRNA"].nunique(),
+        "unique_genes": frame["gene"].nunique(),
+        "unique_pairs": frame[["noncodingRNA", "gene"]].drop_duplicates().shape[0],
+        "mean_mirnas_per_gene": float(mean_mirnas_per_gene) if np.isfinite(mean_mirnas_per_gene) else np.nan,
+        "positive_pairs": int(frame["label"].astype(int).sum()) if not frame.empty else 0,
+        "negative_pairs": int((frame["label"].astype(int) == 0).sum()) if not frame.empty else 0,
+    }]
+    if not frame.empty:
+        frame = frame.copy()
+        frame["length"] = frame["noncodingRNA"].astype(str).str.len()
+        for length, length_frame in frame.groupby("length", sort=True):
+            rows.append({
+                "split": split_name,
+                "row_type": "length",
+                "length": int(length),
+                "pairs": len(length_frame),
+                "unique_mirnas": length_frame["noncodingRNA"].nunique(),
+                "unique_genes": length_frame["gene"].nunique(),
+                "unique_pairs": length_frame[["noncodingRNA", "gene"]].drop_duplicates().shape[0],
+                "mean_mirnas_per_gene": float(length_frame.groupby("gene")["noncodingRNA"].nunique().mean()),
+                "positive_pairs": int(length_frame["label"].astype(int).sum()),
+                "negative_pairs": int((length_frame["label"].astype(int) == 0).sum()),
+            })
+    return rows
 
 
-def write_dataset_summary(path: str | Path, frames_by_split: dict[str, tuple[pd.DataFrame, pd.DataFrame]], mirna_length: int) -> None:
-    rows = [
-        dataset_summary_row(split_name, raw_frame, filtered_frame, mirna_length)
-        for split_name, (raw_frame, filtered_frame) in frames_by_split.items()
-    ]
+def write_dataset_summary(path: str | Path, frames_by_split: dict[str, pd.DataFrame]) -> None:
+    rows = []
+    for split_name, frame in frames_by_split.items():
+        rows.extend(dataset_summary_rows(split_name, frame))
     write_rows(path, rows)
 
 
 def require_training_frame(frame: pd.DataFrame, split_name: str) -> None:
     if frame.empty:
-        raise ValueError(f"No rows remain in {split_name} after miRNA-length filtering.")
+        raise ValueError(f"No rows are available in {split_name}.")
     if frame["label"].astype(int).nunique() < 2:
-        raise ValueError(f"{split_name} must contain both positive and negative labels after miRNA-length filtering.")
+        raise ValueError(f"{split_name} must contain both positive and negative labels.")
 
 
 def prepare_inputs(frame: pd.DataFrame):
@@ -185,6 +196,16 @@ def prepare_inputs(frame: pd.DataFrame):
     seq_b = [str(Seq(seq).reverse_complement()) for seq in frame["gene"].astype(str)]
     labels = frame["label"].astype(int).tolist()
     return seq_a, seq_b, labels
+
+
+def infer_model_length(frames: list[pd.DataFrame]) -> int:
+    lengths = []
+    for frame in frames:
+        if not frame.empty:
+            lengths.extend(frame["noncodingRNA"].astype(str).str.len().tolist())
+    if not lengths:
+        raise ValueError("Cannot infer model length from empty datasets.")
+    return int(max(lengths))
 
 
 def load_frames(args):
@@ -203,18 +224,15 @@ def load_frames(args):
         if overlap:
             raise ValueError(f"Custom evaluation names duplicate miRBench split names: {overlap}")
         raw_evaluation_frames.update(custom_evaluation_frames)
-        evaluation_frames = {}
-        for name, raw_frame in raw_evaluation_frames.items():
-            filtered_frame = filter_by_mirna_length(raw_frame, args.mirna_length)
-            summary_frames[name] = (raw_frame, filtered_frame)
-            evaluation_frames[name] = filtered_frame
+        evaluation_frames = raw_evaluation_frames
+        summary_frames.update(raw_evaluation_frames)
     if args.evaluate_only:
         empty_frame = pd.DataFrame(columns=REQUIRED_EVALUATION_COLUMNS)
         return empty_frame, empty_frame, empty_frame, evaluation_frames, summary_frames
 
     raw_train_frame = get_dataset_dataframe(train_alias).reset_index(drop=True)
-    train_frame = filter_by_mirna_length(raw_train_frame, args.mirna_length)
-    summary_frames[train_alias] = (raw_train_frame, train_frame)
+    train_frame = raw_train_frame
+    summary_frames[train_alias] = train_frame
     require_training_frame(train_frame, train_alias)
     fit_frame, validation_frame = train_test_split(
         train_frame,
@@ -224,8 +242,8 @@ def load_frames(args):
     )
     fit_frame = fit_frame.reset_index(drop=True)
     validation_frame = validation_frame.reset_index(drop=True)
-    summary_frames["fit"] = (fit_frame, fit_frame)
-    summary_frames["validation"] = (validation_frame, validation_frame)
+    summary_frames["fit"] = fit_frame
+    summary_frames["validation"] = validation_frame
     return train_frame, fit_frame, validation_frame, evaluation_frames, summary_frames
 
 
@@ -245,7 +263,7 @@ def build_config(dataset_label, index, values, args):
         "step_decay_burnin": int(step_decay_burnin),
         "prior_precision": float(prior_precision),
         "label_prior": label_prior,
-        "mirna_length": int(args.mirna_length),
+        "model_length": int(args.model_length),
         "max_iter": int(max_iter),
         "num_threads": int(args.num_threads),
     }
@@ -370,7 +388,8 @@ def main():
     run_name = args.run_tag if args.run_tag else args.dataset
     run_dir = Path(args.results_dir) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
-    write_dataset_summary(run_dir / "dataset_summary.csv", summary_frames, args.mirna_length)
+    args.model_length = infer_model_length([train_frame, *evaluation_frames.values()])
+    write_dataset_summary(run_dir / "dataset_summary.csv", summary_frames)
     evaluation_inputs = {name: prepare_inputs(frame) for name, frame in evaluation_frames.items()}
 
     if args.evaluate_only:
