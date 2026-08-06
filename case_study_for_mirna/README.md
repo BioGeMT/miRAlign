@@ -1,14 +1,56 @@
 # miRNA case study
 
-This directory contains the miRBench-based miRNA case-study workflow for miRAlign.
-The workflow follows the same structure used for the DiscrimAlign miRNA case
-study: train on a named miRBench training split, select a configuration using a
-validation split, refit the selected configuration, and report AUPRC/ROC-AUC on
-held-out miRBench splits.
+This directory contains the miRBench-based miRNA case-study workflow for
+miRAlign. The user selects a training dataset, validation split strategy, and
+evaluation splits. The workflow initializes a shared position-specific miRAlign
+parameter set up to the longest loaded miRNA, selects a configuration by
+validation AUPRC, refits that configuration, and reports AUPRC/ROC-AUC on
+held-out splits.
+
+The case study is the end-to-end demonstration of miRAlign for microRNA-target
+interaction prediction. It treats miRAlign as an interpretable,
+position-aware alignment model: learn position-specific substitution weights
+and gap penalties from labeled miRNA-target sequence pairs, then evaluate the
+learned model on held-out benchmark splits.
+
+This branch keeps all selected miRNA lengths instead of filtering to one length.
+Shorter miRNAs use only their real sequence positions; absent tail positions do
+not contribute alignment scores or gradient updates. The workflow also writes
+dataset diagnostics and performance slices by length, seen/unseen entities, and
+frequency bins.
+
+The workflow produces a complete experiment record under
+`results/case_study_for_mirna/<run-tag>/`, including dataset summaries,
+entity-frequency diagnostics, split-overlap diagnostics, fit/validation metrics,
+held-out AUPRC/ROC-AUC metrics, metric slices, PR/ROC curve points, convergence
+trajectories, fitted model files, and learned parameters.
+
+The datasets come from miRBench:
+
+- Sammut et al., "miRBench: novel benchmark datasets for microRNA binding site
+  prediction that mitigate against prevalent microRNA frequency class bias",
+  *Bioinformatics* 41(Supplement_1), i542-i551 (2025),
+  https://academic.oup.com/bioinformatics/article/41/Supplement_1/i542/8199406
+
+DiscrimAlign references used for the baseline parameters and case-study
+protocol:
+
+- Ciach et al., "Discriminative learning of substitution matrices and gap
+  penalties for pairwise alignment of biological sequences",
+  https://doi.org/10.64898/2026.05.14.725168
+- DiscrimAlign GitHub repository: https://github.com/BioGeMT/DiscrimAlign/
 
 ## Methodology
 
-The case study uses the miRBench dataset interface and the following aliases:
+The case study uses the miRBench dataset interface. `--dataset` selects the
+training family:
+
+```text
+hejret  -> hejret_train
+manakov -> manakov_train
+```
+
+Evaluation split aliases are:
 
 ```text
 hejret_train
@@ -19,10 +61,9 @@ manakov_leftout
 klimentova_test
 ```
 
-Training data are split into fit and validation partitions with stratified
-sampling. Configurations are ranked by validation AUPRC. The selected
-configuration is then refit on the full training split and evaluated on the
-requested held-out splits.
+Training data are split into fit and validation partitions. Configurations are
+ranked by validation AUPRC. The selected configuration is refit on the full
+training split and evaluated on the requested held-out splits.
 
 Use `--split-strategy` to choose the validation design:
 
@@ -32,17 +73,24 @@ group_mirna  validation miRNAs are unseen during fitting
 group_gene   validation genes are unseen during fitting
 ```
 
-All miRNA lengths in the loaded splits are included. The model allocates one
-shared position-specific parameter set up to the longest loaded miRNA, while
-shorter miRNAs are kept as real shorter sequences. Their absent tail positions
-do not contribute alignment scores or gradient updates.
+All miRNA lengths in the loaded splits are included. The workflow infers
+`model_length` from the longest miRNA in the selected training and evaluation
+frames. The model allocates one shared position-specific parameter set up to
+that length, while shorter miRNAs are kept as real shorter sequences. Their
+absent tail positions do not contribute alignment scores or gradient updates.
+The workflow prints the selected training dataset, split, pair count, validation
+strategy, and inferred model length at startup.
+
+Use `--eval-files` to add user-provided evaluation files alongside miRBench
+splits. Values are comma-separated `name=path.tsv` entries, or bare paths that
+use the file stem as the split name.
 
 To keep the grid search tractable, each grid configuration is scored only on
 the fit and validation partitions. Held-out miRBench evaluation splits are
 scored only for the selected grid model and for the final refit model.
 
-miRAlign initializes its position-specific substitution matrix and gap vectors
-from the Hejret/DiscrimAlign simple-alignment baseline:
+miRAlign initializes its position-specific substitution matrix, gap vectors, and
+intercept from the Hejret/DiscrimAlign simple-alignment baseline:
 
 ```text
 match = 0.724709
@@ -51,8 +99,17 @@ gap = -0.901264
 alpha = -5.226262
 ```
 
-When prior regularization is enabled, the same baseline should be used as the
-default prior for `M`, `G_miR`, and `G_gene`.
+For inferred model length `L`, the initial parameters are resized as:
+
+```text
+M:       (4, 4, L)
+G_miR:   (L - 1,)
+G_gene:  (L,)
+alpha:   scalar
+```
+
+When prior regularization is enabled, the same length-specific baseline is used
+as the prior for `M`, `G_miR`, and `G_gene`.
 
 `prior_precision` controls how strongly the fitted position-specific parameters
 are pulled back toward that baseline. `0` means no prior regularization. Larger
@@ -82,6 +139,16 @@ symmetric_90_10:
 symmetric_80_20:
 [[800, 200],
  [200, 800]]
+```
+
+`sample_weight` controls optional reweighting of training pairs before fitting:
+
+```text
+none             every pair has equal weight
+mirna_balanced   balance each miRNA's total weight
+gene_balanced    balance each gene's total weight
+pair_balanced    balance repeated miRNA-gene pairs
+mirna_gene_sqrt  downweight frequent miRNAs and genes by sqrt frequency
 ```
 
 ## Grid
@@ -137,6 +204,23 @@ results/case_study_for_mirna/<run-tag>/
 
 ## Run the workflow
 
+Minimum mixed-length run:
+
+```bash
+uv run python case_study_for_mirna/case_study_mirna.py \
+  --dataset hejret \
+  --eval-splits hejret_test
+```
+
+Use an unseen-miRNA validation split:
+
+```bash
+uv run python case_study_for_mirna/case_study_mirna.py \
+  --dataset hejret \
+  --eval-splits hejret_test,manakov_test,manakov_leftout \
+  --split-strategy group_mirna
+```
+
 To reproduce both training-family rows for the AUPRC table:
 
 ```bash
@@ -160,6 +244,7 @@ reasonable starting point is:
 uv run python case_study_for_mirna/case_study_mirna.py \
   --dataset hejret \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
+  --split-strategy random \
   --aligners local,glocal \
   --step-scales 0.00001,0.000012,0.00005,0.0001,0.0005 \
   --step-decay-burnins 300 \
@@ -178,6 +263,7 @@ uv run python case_study_for_mirna/case_study_mirna.py \
 uv run python case_study_for_mirna/case_study_mirna.py \
   --dataset manakov \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
+  --split-strategy random \
   --aligners local,glocal \
   --step-scales 0.00001,0.000012,0.00005,0.0001,0.0005 \
   --step-decay-burnins 300 \
