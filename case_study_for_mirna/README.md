@@ -1,14 +1,37 @@
 # miRNA case study
 
-This directory contains the miRBench-based miRNA case-study workflow for miRAlign.
-The workflow follows the same structure used for the DiscrimAlign miRNA case
-study: train on a named miRBench training split, select a configuration using a
-validation split, refit the selected configuration, and report AUPRC/ROC-AUC on
-held-out miRBench splits.
+This directory contains the miRBench-based miRNA case-study workflow for
+miRAlign. The user selects a training dataset and miRNA length. The workflow
+keeps only miRNAs of that length, initializes length-specific miRAlign
+parameters, selects a configuration by validation AUPRC, refits that
+configuration, and reports AUPRC/ROC-AUC on held-out splits.
+
+The datasets come from miRBench:
+
+- Sammut et al., "miRBench: novel benchmark datasets for microRNA binding site
+  prediction that mitigate against prevalent microRNA frequency class bias",
+  *Bioinformatics* 41(Supplement_1), i542-i551 (2025),
+  https://academic.oup.com/bioinformatics/article/41/Supplement_1/i542/8199406
+
+DiscrimAlign references used for the baseline parameters and case-study
+protocol:
+
+- Ciach et al., "Discriminative learning of substitution matrices and gap
+  penalties for pairwise alignment of biological sequences",
+  https://doi.org/10.64898/2026.05.14.725168
+- DiscrimAlign GitHub repository: https://github.com/BioGeMT/DiscrimAlign/
 
 ## Methodology
 
-The case study uses the miRBench dataset interface and the following aliases:
+The case study uses the miRBench dataset interface. `--dataset` selects the
+training family:
+
+```text
+hejret  -> hejret_train
+manakov -> manakov_train
+```
+
+Evaluation split aliases are:
 
 ```text
 hejret_train
@@ -19,22 +42,23 @@ manakov_leftout
 klimentova_test
 ```
 
-Training data are split into fit and validation partitions with stratified
-sampling. Configurations are ranked by validation AUPRC. The selected
-configuration is then refit on the full training split and evaluated on the
-requested held-out splits.
+Training data are filtered by `--mirna-length` first, then split into fit and
+validation partitions with stratified sampling. Configurations are ranked by
+validation AUPRC. The selected configuration is refit on the full filtered
+training split and evaluated on the requested held-out splits.
 
 Use `--mirna-length` to choose which miRNA length to model. The default is `22`.
 All training, validation, and evaluation frames are filtered to that length
-before fitting or scoring, so separate runs can produce length-specific model
-implementations and outputs.
+before fitting or scoring, so separate runs produce length-specific models and
+outputs. The workflow prints the selected training dataset, split, filtered pair
+count, and miRNA length at startup.
 
 To keep the grid search tractable, each grid configuration is scored only on
 the fit and validation partitions. Held-out miRBench evaluation splits are
 scored only for the selected grid model and for the final refit model.
 
-miRAlign initializes its position-specific substitution matrix and gap vectors
-from the Hejret/DiscrimAlign simple-alignment baseline:
+miRAlign initializes its position-specific substitution matrix, gap vectors, and
+intercept from the Hejret/DiscrimAlign simple-alignment baseline:
 
 ```text
 match = 0.724709
@@ -43,8 +67,17 @@ gap = -0.901264
 alpha = -5.226262
 ```
 
-When prior regularization is enabled, the same baseline should be used as the
-default prior for `M`, `G_miR`, and `G_gene`.
+For a requested miRNA length `L`, the initial parameters are resized as:
+
+```text
+M:       (4, 4, L)
+G_miR:   (L - 1,)
+G_gene:  (L,)
+alpha:   scalar
+```
+
+When prior regularization is enabled, the same length-specific baseline is used
+as the prior for `M`, `G_miR`, and `G_gene`.
 
 `prior_precision` controls how strongly the fitted position-specific parameters
 are pulled back toward that baseline. `0` means no prior regularization. Larger
@@ -121,6 +154,15 @@ results/case_study_for_mirna/<run-tag>/
 
 ## Run the workflow
 
+Minimum length-specific run:
+
+```bash
+uv run python case_study_for_mirna/case_study_mirna.py \
+  --dataset hejret \
+  --mirna-length 22 \
+  --eval-splits hejret_test
+```
+
 To reproduce both training-family rows for the AUPRC table:
 
 ```bash
@@ -180,33 +222,14 @@ This follows the DiscrimAlign case-study approach: run the grid at
 `--max-iters 100`, select by validation AUPRC, then refit the selected
 configuration at `--final-max-iter 500` on the full training split.
 
-For a quick smoke run, limit the grid and skip the final refit:
-
-```bash
-uv run python case_study_for_mirna/case_study_mirna.py \
-  --dataset hejret \
-  --eval-splits hejret_test \
-  --mirna-length 22 \
-  --aligners local \
-  --step-scales 0.00001 \
-  --step-decay-burnins 300 \
-  --prior-precisions 0 \
-  --label-priors none \
-  --max-iters 1 \
-  --final-max-iter 0 \
-  --num-threads 1 \
-  --config-workers 1 \
-  --limit-configs 1 \
-  --run-tag smoke
-```
-
 Saved models can be evaluated without refitting:
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py \
   --evaluate-only \
-  --trained-model results/case_study_for_mirna/smoke/best_grid_model/model.pkl \
+  --trained-model results/case_study_for_mirna/train_hejret_eval_all/best_grid_model/model.pkl \
   --dataset hejret \
+  --mirna-length 22 \
   --eval-splits hejret_test \
   --num-threads 8 \
   --run-tag evaluate_saved_model
