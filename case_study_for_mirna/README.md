@@ -13,17 +13,23 @@ position-aware alignment model: learn position-specific substitution weights
 and gap penalties from labeled miRNA-target sequence pairs, then evaluate the
 learned model on held-out benchmark splits.
 
-This branch keeps all selected miRNA lengths instead of filtering to one length.
-Shorter miRNAs use only their real sequence positions; absent tail positions do
-not contribute alignment scores or gradient updates. The workflow also writes
-dataset diagnostics and performance slices by length, seen/unseen entities, and
-frequency bins.
+This branch is an alternative all-length miRAlign strategy, not a fixed-length
+case-study workflow. It keeps all selected miRNA lengths instead of filtering to
+one length. Shorter miRNAs use only their real sequence positions; absent tail
+positions do not contribute alignment scores or gradient updates. The workflow
+also writes dataset diagnostics and performance slices by length, seen/unseen
+entities, and frequency bins.
 
 The workflow produces a complete experiment record under
 `results/case_study_for_mirna/<run-tag>/`, including dataset summaries,
 entity-frequency diagnostics, split-overlap diagnostics, fit/validation metrics,
 held-out AUPRC/ROC-AUC metrics, metric slices, PR/ROC curve points, convergence
 trajectories, fitted model files, and learned parameters.
+
+Interpret performance with the held-out splits and diagnostic slices, not only
+aggregate AUPRC. The strongest generalization claims should rely on
+`manakov_leftout`, `group_mirna` validation, and frequency-sliced metrics because
+miRBench was designed to reduce miRNA frequency-class artifacts.
 
 The datasets come from miRBench:
 
@@ -69,7 +75,8 @@ Use `--split-strategy` to choose the validation design:
 
 ```text
 random       stratified row-level split
-group_mirna  validation miRNAs are unseen during fitting
+group_mirna  validation miRNAs are unseen during fitting; recommended for
+             unseen-miRNA generalization claims
 group_gene   validation genes are unseen during fitting
 ```
 
@@ -88,6 +95,8 @@ use the file stem as the split name.
 To keep the grid search tractable, each grid configuration is scored only on
 the fit and validation partitions. Held-out miRBench evaluation splits are
 scored only for the selected grid model and for the final refit model.
+Report both aggregate metrics and `metric_slices.csv`; do not rely on aggregate
+AUPRC alone when comparing models or making biological claims.
 
 miRAlign initializes its position-specific substitution matrix, gap vectors, and
 intercept from the Hejret/DiscrimAlign simple-alignment baseline:

@@ -26,11 +26,11 @@ interpretable, position-aware alignment model: learn position-specific
 substitution weights and gap penalties from labeled miRNA-target sequence pairs,
 then evaluate the learned model on held-out benchmark splits.
 
-This branch extends the length-specific workflow with mixed-length modeling and
-case-study diagnostics. Instead of filtering to one miRNA length, the workflow
-loads all selected miRNA lengths, allocates parameters up to the longest loaded
-miRNA, and records performance slices by miRNA length, seen/unseen entities, and
-frequency bins.
+This branch should be interpreted as an alternative all-length miRAlign
+strategy, not as a fixed-length case-study workflow. Instead of filtering to one
+miRNA length, it loads all selected miRNA lengths, allocates parameters up to
+the longest loaded miRNA, and records performance slices by miRNA length,
+seen/unseen entities, and frequency bins.
 
 As a final product, the case study provides:
 
@@ -43,6 +43,11 @@ As a final product, the case study provides:
 - dataset diagnostics, held-out AUPRC/ROC-AUC summaries, metric slices, PR/ROC
   curves, fitted models, and learned parameters under
   `results/case_study_for_mirna/`.
+
+Performance should be interpreted with the held-out splits and diagnostic
+slices, not only aggregate AUPRC. The strongest generalization claims should use
+the `manakov_leftout` split, `group_mirna` validation, and frequency-sliced
+metrics because miRBench was designed to reduce miRNA frequency-class artifacts.
 
 The miRNA case study uses datasets from miRBench:
 
@@ -63,7 +68,8 @@ The workflow lets the user choose the training dataset, validation split design,
 evaluation splits, and optional user-provided evaluation files. It initializes a
 model length from the longest loaded miRNA, selects configurations by validation
 AUPRC, refits the selected configuration, and evaluates on held-out miRBench or
-custom splits.
+custom splits. Prefer `--split-strategy group_mirna` when tuning for claims
+about unseen-miRNA generalization.
 
 Example:
 
