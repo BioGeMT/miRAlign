@@ -180,6 +180,14 @@ def require_training_frame(frame: pd.DataFrame, split_name: str) -> None:
         raise ValueError(f"{split_name} must contain both positive and negative labels after miRNA-length filtering.")
 
 
+def print_training_selection(dataset: str, train_alias: str, raw_frame: pd.DataFrame, filtered_frame: pd.DataFrame, mirna_length: int) -> None:
+    print(
+        f"Training dataset {dataset} ({train_alias}): using "
+        f"{len(filtered_frame)}/{len(raw_frame)} pairs with miRNA length {mirna_length}.",
+        flush=True,
+    )
+
+
 def prepare_inputs(frame: pd.DataFrame):
     seq_a = frame["noncodingRNA"].astype(str).tolist()
     seq_b = [str(Seq(seq).reverse_complement()) for seq in frame["gene"].astype(str)]
@@ -216,6 +224,7 @@ def load_frames(args):
     train_frame = filter_by_mirna_length(raw_train_frame, args.mirna_length)
     summary_frames[train_alias] = (raw_train_frame, train_frame)
     require_training_frame(train_frame, train_alias)
+    print_training_selection(args.dataset, train_alias, raw_train_frame, train_frame, args.mirna_length)
     fit_frame, validation_frame = train_test_split(
         train_frame,
         test_size=args.validation_fraction,

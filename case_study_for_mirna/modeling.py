@@ -37,7 +37,13 @@ def priors_from_precision(prior_precision: float, mirna_length: int):
 
 def fit_configuration(fit_inputs, config: dict):
     start_time = time.perf_counter()
-    mirna_length = len(fit_inputs[0][0])
+    mirna_length = int(config["mirna_length"])
+    observed_lengths = {len(str(mirna)) for mirna in fit_inputs[0]}
+    if observed_lengths != {mirna_length}:
+        raise ValueError(
+            f"Training inputs must all have miRNA length {mirna_length}; "
+            f"observed lengths {sorted(observed_lengths)}."
+        )
     M_prior, G_miR_prior, G_gene_prior = priors_from_precision(float(config["prior_precision"]), mirna_length)
     result = miRAlign(
         mirna_list=fit_inputs[0],

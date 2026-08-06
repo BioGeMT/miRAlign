@@ -265,16 +265,15 @@ def miRAlign(mirna_list, gene_list, label_list,
             if z_star.success is False:
                 if verbose:
                     print("Label probability optimization failed; keeping previous label probabilities.")
-                continue
             else:
                 z_star = z_star['x']
-            # Step 2.4: Transform back to a vector of probabilities of
-            # observing correct labels, fill the label_prob array
-            correct_label_probs = 1/(1+np.exp(-z_star))
-            label_probs = np.array([[correct_label_probs[0], 1-correct_label_probs[0]],
-                                    [1-correct_label_probs[1], correct_label_probs[1]]])
-            if verbose:
-                print("Updated probs of correct labels:", correct_label_probs)
+                # Step 2.4: Transform back to a vector of probabilities of
+                # observing correct labels, fill the label_prob array
+                correct_label_probs = 1/(1+np.exp(-z_star))
+                label_probs = np.array([[correct_label_probs[0], 1-correct_label_probs[0]],
+                                        [1-correct_label_probs[1], correct_label_probs[1]]])
+                if verbose:
+                    print("Updated probs of correct labels:", correct_label_probs)
                 
         # Step 3: optimizing matrices - subgradient step        
         step_theta = step_function(iter_nb = iter_nb,
