@@ -280,31 +280,12 @@ This follows the DiscrimAlign case-study approach: run the grid at
 `--max-iters 100`, select by validation AUPRC, then refit the selected
 configuration at `--final-max-iter 500` on the full training split.
 
-For a quick smoke run, limit the grid and skip the final refit:
-
-```bash
-uv run python case_study_for_mirna/case_study_mirna.py \
-  --dataset hejret \
-  --eval-splits hejret_test \
-  --aligners local \
-  --step-scales 0.00001 \
-  --step-decay-burnins 300 \
-  --prior-precisions 0 \
-  --label-priors none \
-  --max-iters 1 \
-  --final-max-iter 0 \
-  --num-threads 1 \
-  --config-workers 1 \
-  --limit-configs 1 \
-  --run-tag smoke
-```
-
 Saved models can be evaluated without refitting:
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py \
   --evaluate-only \
-  --trained-model results/case_study_for_mirna/smoke/best_grid_model/model.pkl \
+  --trained-model results/case_study_for_mirna/train_hejret_eval_all/best_grid_model/model.pkl \
   --dataset hejret \
   --eval-splits hejret_test \
   --num-threads 8 \
