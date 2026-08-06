@@ -7,7 +7,7 @@ from Bio.Seq import Seq
 from sklearn.metrics import average_precision_score
 from scipy.optimize import minimize
 from .shared_global_vars import NUCL, NUCL_DICT
-from .likelihood_and_subgradients import logit_logl, logit_derivative_alpha, logit_derivative_label_probs
+from .likelihood_and_subgradients import _sigmoid, logit_logl, logit_derivative_alpha, logit_derivative_label_probs
 from .optimization_functions import logreg_starting_point
 from math import ceil
 
@@ -248,7 +248,7 @@ def miRAlign(mirna_list, gene_list, label_list,
                 Target for optimization of label observation probabilities;
                 z = vector of logit-transformed probabilities of correct labels
                 """
-                x = 1/(1+np.exp(-z))
+                x = _sigmoid(z)
                 prob_array = np.array([[x[0], 1-x[0]], [1-x[1], x[1]]])
                 return -logit_logl(scores_pos=scores_pos,
                                    scores_neg=scores_neg,
@@ -270,7 +270,7 @@ def miRAlign(mirna_list, gene_list, label_list,
                 Jacobian for optimization of label observation probabilities;
                 z = vector of logit-transformed probabilities of correct labels
                 """
-                x = 1/(1+np.exp(-z))
+                x = _sigmoid(z)
                 prob_array = np.array([[x[0], 1-x[0]], [1-x[1], x[1]]])
                 dL_dx = -logit_derivative_label_probs(scores_pos=scores_pos,
                                    scores_neg=scores_neg,

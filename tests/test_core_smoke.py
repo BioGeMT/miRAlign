@@ -10,6 +10,13 @@ from case_study_for_mirna.case_study_mirna import (
     write_dataset_summary,
 )
 from src.miralign import miRAlign
+from src.likelihood_and_subgradients import (
+    logit_derivative_alpha,
+    logit_derivative_label_probs,
+    logit_lhood_vect,
+    logit_logl,
+    logit_subderivative_theta,
+)
 from src.optimization_functions import (
     BASELINE_ALPHA,
     BASELINE_GAP_SCORE,
@@ -123,6 +130,30 @@ def test_miralign_one_iteration_with_label_prior():
 
     assert result["label_observation_probs"].shape == (2, 2)
     assert np.isfinite(result["final_loglik"])
+
+
+def test_logit_helpers_do_not_overflow_for_extreme_scores():
+    scores_pos = np.array([1000.0, -1000.0])
+    scores_neg = np.array([900.0, -900.0])
+    label_prior = np.array([[900, 100], [100, 900]], dtype=float)
+    label_probs = np.array([[0.9, 0.1], [0.1, 0.9]], dtype=float)
+    alignments = [
+        (1000.0, ["A"], ["A"], [0], [0]),
+        (-1000.0, ["C"], ["G"], [0], [0]),
+    ]
+
+    with np.errstate(over="raise", divide="raise", invalid="raise"):
+        likelihood = logit_logl(scores_pos, scores_neg, 0.0, label_prior, label_probs)
+        probabilities = logit_lhood_vect(np.array([1000.0, -1000.0]), 0.0)
+        alpha_derivative = logit_derivative_alpha(scores_pos, scores_neg, 0.0, label_probs)
+        label_derivative = logit_derivative_label_probs(scores_pos, scores_neg, 0.0, label_prior, label_probs)
+        theta_derivative = logit_subderivative_theta(alignments, [1, 0], 0.0, label_probs, mirna_length=1)
+
+    assert np.isfinite(likelihood)
+    assert np.all(np.isfinite(probabilities))
+    assert np.isfinite(alpha_derivative)
+    assert np.all(np.isfinite(label_derivative))
+    assert all(np.all(np.isfinite(part)) for part in theta_derivative)
 
 
 def test_case_study_label_prior_names():

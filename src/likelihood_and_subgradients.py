@@ -7,6 +7,23 @@ import numpy as np
 from .shared_global_vars import NUCL_DICT
 
 
+TINY = np.finfo(float).tiny
+
+
+def _sigmoid(values):
+    values = np.asarray(values, dtype=float)
+    result = np.empty_like(values, dtype=float)
+    positive = values >= 0
+    result[positive] = 1 / (1 + np.exp(-values[positive]))
+    exp_values = np.exp(values[~positive])
+    result[~positive] = exp_values / (1 + exp_values)
+    return result
+
+
+def _safe_label_probs(label_observation_probs):
+    return np.clip(np.asarray(label_observation_probs, dtype=float), TINY, 1.0)
+
+
 def logit_logl(
     scores_pos,
     scores_neg,
@@ -38,12 +55,16 @@ def logit_logl(
         value -= lbd * np.sum((G_gene - G_gene_prior) ** 2)
 
     if label_observation_parameters is not None:
+        label_observation_probs = _safe_label_probs(label_observation_probs)
         value += np.sum(label_observation_parameters * np.log(label_observation_probs))
-        pos_part = label_observation_probs[1, 1] / (1 + np.exp(-alpha - scores_pos))
-        pos_part += label_observation_probs[0, 1] / (1 + np.exp(alpha + scores_pos))
-        neg_part = label_observation_probs[1, 0] / (1 + np.exp(-alpha - scores_neg))
-        neg_part += label_observation_probs[0, 0] / (1 + np.exp(alpha + scores_neg))
-        value += np.sum(weights_pos * np.log(pos_part)) + np.sum(weights_neg * np.log(neg_part))
+        pos_prob = _sigmoid(alpha + scores_pos)
+        neg_prob = _sigmoid(alpha + scores_neg)
+        pos_part = label_observation_probs[1, 1] * pos_prob
+        pos_part += label_observation_probs[0, 1] * (1 - pos_prob)
+        neg_part = label_observation_probs[1, 0] * neg_prob
+        neg_part += label_observation_probs[0, 0] * (1 - neg_prob)
+        value += np.sum(weights_pos * np.log(np.maximum(pos_part, TINY)))
+        value += np.sum(weights_neg * np.log(np.maximum(neg_part, TINY)))
     else:
         value -= np.sum(weights_pos * np.logaddexp(0, -alpha - scores_pos))
         value -= np.sum(weights_neg * np.logaddexp(0, alpha + scores_neg))
@@ -52,7 +73,7 @@ def logit_logl(
 
 
 def logit_lhood_vect(scores, alpha):
-    return 1 / (1 + np.exp(-alpha - np.asarray(scores, dtype=float)))
+    return _sigmoid(alpha + np.asarray(scores, dtype=float))
 
 
 def logit_derivative_alpha(
@@ -67,18 +88,23 @@ def logit_derivative_alpha(
     scores_neg = np.asarray(scores_neg, dtype=float)
     weights_pos = np.ones_like(scores_pos) if weights_pos is None else np.asarray(weights_pos, dtype=float)
     weights_neg = np.ones_like(scores_neg) if weights_neg is None else np.asarray(weights_neg, dtype=float)
+    pos_prob = _sigmoid(alpha + scores_pos)
+    neg_prob = _sigmoid(alpha + scores_neg)
     if label_observation_probs is None:
-        pos_part = 1 / (1 + np.exp(alpha + scores_pos))
-        neg_part = 1 / (1 + np.exp(-alpha - scores_neg))
+        pos_part = 1 - pos_prob
+        neg_part = neg_prob
         return np.sum(weights_pos * pos_part) - np.sum(weights_neg * neg_part)
 
+    label_observation_probs = _safe_label_probs(label_observation_probs)
     pos_factor = label_observation_probs[1, 1] - label_observation_probs[0, 1]
     neg_factor = label_observation_probs[1, 0] - label_observation_probs[0, 0]
-    pos_denominator = label_observation_probs[0, 1] * (1 + np.exp(-alpha - scores_pos))
-    pos_denominator += label_observation_probs[1, 1] * (1 + np.exp(alpha + scores_pos))
-    neg_denominator = label_observation_probs[0, 0] * (1 + np.exp(-alpha - scores_neg))
-    neg_denominator += label_observation_probs[1, 0] * (1 + np.exp(alpha + scores_neg))
-    return pos_factor * np.sum(weights_pos / pos_denominator) + neg_factor * np.sum(weights_neg / neg_denominator)
+    pos_mix = label_observation_probs[1, 1] * pos_prob + label_observation_probs[0, 1] * (1 - pos_prob)
+    neg_mix = label_observation_probs[1, 0] * neg_prob + label_observation_probs[0, 0] * (1 - neg_prob)
+    pos_slope = pos_prob * (1 - pos_prob)
+    neg_slope = neg_prob * (1 - neg_prob)
+    pos_part = pos_factor * pos_slope / np.maximum(pos_mix, TINY)
+    neg_part = neg_factor * neg_slope / np.maximum(neg_mix, TINY)
+    return np.sum(weights_pos * pos_part) + np.sum(weights_neg * neg_part)
 
 
 def logit_derivative_label_probs(
@@ -95,32 +121,23 @@ def logit_derivative_label_probs(
     scores_neg = np.asarray(scores_neg, dtype=float)
     weights_pos = np.ones_like(scores_pos) if weights_pos is None else np.asarray(weights_pos, dtype=float)
     weights_neg = np.ones_like(scores_neg) if weights_neg is None else np.asarray(weights_neg, dtype=float)
+    label_observation_probs = _safe_label_probs(label_observation_probs)
+    pos_prob = _sigmoid(alpha + scores_pos)
+    neg_prob = _sigmoid(alpha + scores_neg)
+    pos_mix = label_observation_probs[1, 1] * pos_prob + label_observation_probs[0, 1] * (1 - pos_prob)
+    neg_mix = label_observation_probs[1, 0] * neg_prob + label_observation_probs[0, 0] * (1 - neg_prob)
+    pos_mix = np.maximum(pos_mix, TINY)
+    neg_mix = np.maximum(neg_mix, TINY)
 
     d_00_prior = label_observation_parameters[0, 0] / label_observation_probs[0, 0]
     d_00_prior -= label_observation_parameters[0, 1] / label_observation_probs[0, 1]
-    d_00_neg = 1 / (1 + np.exp(alpha + scores_neg))
-    d_00_neg /= (
-        label_observation_probs[0, 0] / (1 + np.exp(-alpha - scores_neg))
-        + label_observation_probs[1, 0] / (1 + np.exp(alpha + scores_neg))
-    )
-    d_00_pos = -1 / (1 + np.exp(alpha + scores_pos))
-    d_00_pos /= (
-        label_observation_probs[0, 1] * (1 + np.exp(-alpha - scores_pos))
-        + label_observation_probs[1, 1] * (1 + np.exp(alpha + scores_pos))
-    )
+    d_00_neg = (1 - neg_prob) / neg_mix
+    d_00_pos = -(1 - pos_prob) / pos_mix
 
     d_11_prior = label_observation_parameters[1, 1] / label_observation_probs[1, 1]
     d_11_prior -= label_observation_parameters[1, 0] / label_observation_probs[1, 0]
-    d_11_neg = -1 / (1 + np.exp(-alpha - scores_neg))
-    d_11_neg /= (
-        label_observation_probs[1, 0] / (1 + np.exp(-alpha - scores_neg))
-        + label_observation_probs[0, 0] / (1 + np.exp(alpha + scores_neg))
-    )
-    d_11_pos = 1 / (1 + np.exp(-alpha - scores_pos))
-    d_11_pos /= (
-        label_observation_probs[1, 1] / (1 + np.exp(-alpha - scores_pos))
-        + label_observation_probs[0, 1] / (1 + np.exp(alpha + scores_pos))
-    )
+    d_11_neg = -neg_prob / neg_mix
+    d_11_pos = pos_prob / pos_mix
 
     return np.array(
         [
@@ -139,20 +156,25 @@ def logit_subderivative_theta(alignments, labels, alpha, label_observation_probs
         sample_weight = np.ones(len(labels))
     for aln, lab, weight in zip(alignments, labels, sample_weight):
         score, aligned_miR, aligned_mR, crd_miR, _ = aln
+        score_prob = _sigmoid(alpha + score)
         if lab == 1:
             if label_observation_probs is None:
-                scaling_factor = 1 / (1 + np.exp(alpha + score))
+                scaling_factor = 1 - score_prob
             else:
-                denominator = label_observation_probs[0, 1] * (1 + np.exp(-alpha - score))
-                denominator += label_observation_probs[1, 1] * (1 + np.exp(alpha + score))
-                scaling_factor = (label_observation_probs[1, 1] - label_observation_probs[0, 1]) / denominator
+                label_observation_probs = _safe_label_probs(label_observation_probs)
+                mix = label_observation_probs[1, 1] * score_prob
+                mix += label_observation_probs[0, 1] * (1 - score_prob)
+                slope = score_prob * (1 - score_prob)
+                scaling_factor = (label_observation_probs[1, 1] - label_observation_probs[0, 1]) * slope / max(mix, TINY)
         elif lab == 0:
             if label_observation_probs is None:
-                scaling_factor = -1 / (1 + np.exp(-alpha - score))
+                scaling_factor = -score_prob
             else:
-                denominator = label_observation_probs[0, 0] * (1 + np.exp(-alpha - score))
-                denominator += label_observation_probs[1, 0] * (1 + np.exp(alpha + score))
-                scaling_factor = (label_observation_probs[1, 0] - label_observation_probs[0, 0]) / denominator
+                label_observation_probs = _safe_label_probs(label_observation_probs)
+                mix = label_observation_probs[1, 0] * score_prob
+                mix += label_observation_probs[0, 0] * (1 - score_prob)
+                slope = score_prob * (1 - score_prob)
+                scaling_factor = (label_observation_probs[1, 0] - label_observation_probs[0, 0]) * slope / max(mix, TINY)
         else:
             raise ValueError("Labels must be 0 or 1.")
 
