@@ -6,6 +6,17 @@ keeps only miRNAs of that length, initializes length-specific miRAlign
 parameters, selects a configuration by validation AUPRC, refits that
 configuration, and reports AUPRC/ROC-AUC on held-out splits.
 
+The case study is the end-to-end demonstration of miRAlign for microRNA-target
+interaction prediction. It treats miRAlign as an interpretable,
+position-aware alignment model: learn position-specific substitution weights
+and gap penalties from labeled miRNA-target sequence pairs, then evaluate the
+learned model on held-out benchmark splits.
+
+The workflow produces a complete experiment record under
+`results/case_study_for_mirna/<run-tag>/`, including dataset summaries,
+fit/validation metrics, held-out AUPRC/ROC-AUC metrics, PR/ROC curve points,
+convergence trajectories, fitted model files, and learned parameters.
+
 The datasets come from miRBench:
 
 - Sammut et al., "miRBench: novel benchmark datasets for microRNA binding site

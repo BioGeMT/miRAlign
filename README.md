@@ -8,7 +8,7 @@ miRAlign/
 ├── src/miralign/              core miRAlign package and model code
 ├── case_study_for_mirna/      miRBench case-study workflow and documentation
 ├── results/                   output directory for generated experiment results
-├── *.ipynb                    exploratory notebooks used during development
+├── *.ipynb                    notebooks used during development
 ├── pyproject.toml             Python project metadata and dependencies
 └── uv.lock                    locked Python dependency versions
 ```
@@ -18,6 +18,21 @@ and their detailed instructions live in `case_study_for_mirna/`; generated
 outputs are written under `results/case_study_for_mirna/`.
 
 ## miRNA case study
+
+The miRNA case study is the repository's end-to-end demonstration of miRAlign
+for microRNA-target interaction prediction. It treats miRAlign as an
+interpretable, position-aware alignment model: learn position-specific
+substitution weights and gap penalties from labeled miRNA-target sequence pairs,
+then evaluate the learned model on held-out benchmark splits.
+
+As a final product, the case study provides:
+
+- a command-line workflow for training and evaluating miRAlign on miRBench;
+- length-specific modeling through `--mirna-length` filtering;
+- grid search over aligner, optimization, prior, and label-noise settings;
+- validation-AUPRC model selection followed by full-train refitting;
+- held-out AUPRC/ROC-AUC summaries, PR/ROC curves, fitted models, and learned
+  parameters under `results/case_study_for_mirna/`.
 
 The miRNA case study uses datasets from miRBench:
 
