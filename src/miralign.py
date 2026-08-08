@@ -5,7 +5,7 @@ through a logistic link.
 import numpy as np
 from Bio.Seq import Seq
 from sklearn.metrics import average_precision_score
-from scipy.optimize import minimize
+from scipy.optimize import minimize, minimize_scalar
 from .shared_global_vars import NUCL, NUCL_DICT
 from .likelihood_and_subgradients import _sigmoid, logit_logl, logit_derivative_alpha, logit_derivative_label_probs
 from .optimization_functions import logreg_starting_point
@@ -222,14 +222,33 @@ def miRAlign(mirna_list, gene_list, label_list,
             return  -logit_derivative_alpha(scores_pos, scores_neg,
                                             x,
                                             label_probs)
-        alpha = minimize(alpha_target,
-                         alpha,
-                         jac=alpha_fprime,
-                         tol=1e-3)
-        if alpha.success is False:
-            raise RuntimeError('Estimation of the intercept failed. Try decreasing the step size. If the problem persists, let me know about this.')
+        alpha_previous = float(np.asarray(alpha).ravel()[0])
+        alpha_star = minimize(alpha_target,
+                              alpha_previous,
+                              jac=alpha_fprime,
+                              tol=1e-3)
+        if alpha_star.success is False:
+            fallback = minimize_scalar(
+                lambda x: alpha_target(float(x)),
+                bounds=(-50, 50),
+                method="bounded",
+                options={"xatol": 1e-3},
+            )
+            if fallback.success is False:
+                raise RuntimeError(
+                    "Estimation of the intercept failed with both gradient and bounded scalar optimizers. "
+                    "Try using fewer label-prior configurations or inspect score scaling."
+                )
+            alpha = float(fallback.x)
+            warning = (
+                f"Iteration {iter_nb + 1}: alpha gradient optimization failed; "
+                "used bounded scalar fallback."
+            )
+            optimizer_warnings.append(warning)
+            if verbose:
+                print(warning)
         else:
-            alpha = alpha['x'][0]
+            alpha = alpha_star['x'][0]
         if verbose:
             print("Updated alpha:", alpha)
 
