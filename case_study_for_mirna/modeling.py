@@ -80,10 +80,13 @@ def model_from_result(result: dict, config: dict):
 
 
 def summarize_result(config: dict, result: dict, runtime_seconds: float) -> dict:
+    optimizer_warnings = result.get("optimizer_warnings", [])
     return {
         **config,
         "status": "ok",
         "error": "",
+        "optimizer_warning_count": len(optimizer_warnings),
+        "optimizer_warnings": "; ".join(optimizer_warnings),
         "final_loglik": result.get("final_loglik", np.nan),
         "final_train_auprc": result.get("auprc_trajectory", [np.nan])[-1],
         "alpha": result.get("alpha", np.nan),

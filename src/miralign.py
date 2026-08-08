@@ -37,6 +37,32 @@ def _pair_chunks(mirna_list, gene_list, chunk_size):
         yield zip(mirna_list[start:stop], gene_list[start:stop])
 
 
+def _validate_miralign_inputs(mirna_list, gene_list, label_list):
+    if len(mirna_list) != len(gene_list):
+        raise ValueError(
+            "mirna_list and gene_list must have the same length; "
+            f"got {len(mirna_list)} and {len(gene_list)}."
+        )
+    if len(mirna_list) != len(label_list):
+        raise ValueError(
+            "mirna_list and label_list must have the same length; "
+            f"got {len(mirna_list)} and {len(label_list)}."
+        )
+    if len(mirna_list) == 0:
+        raise ValueError("miRAlign requires at least one sequence pair.")
+    miRNA_lengths = {len(mirna) for mirna in mirna_list}
+    if len(miRNA_lengths) != 1:
+        raise ValueError(
+            "miRNA sequences need to have the same length; "
+            f"observed lengths {sorted(miRNA_lengths)}."
+        )
+    labels = np.asarray(label_list)
+    observed_labels = set(labels.tolist())
+    if not observed_labels.issubset({0, 1, False, True}):
+        raise ValueError(f"Labels must be binary 0/1 values; observed {sorted(observed_labels)}.")
+    return miRNA_lengths.pop(), labels.astype(int)
+
+
 def miRAlign(mirna_list, gene_list, label_list,
              aligner, step_function,
              M_prior = None,
@@ -71,16 +97,8 @@ def miRAlign(mirna_list, gene_list, label_list,
     Returns:
     Substution matrix and gap penalties.
     """
-    miRNA_length = set(len(mirna) for mirna in mirna_list)
-    assert len(miRNA_length) == 1, 'miRNA sequences need to have the same length'
-    miRNA_length = miRNA_length.pop()
-    assert len(mirna_list) == len(gene_list)
-    assert len(mirna_list) == len(label_list)
+    miRNA_length, label_list = _validate_miralign_inputs(mirna_list, gene_list, label_list)
     pair_count = len(mirna_list)
-    if pair_count == 0:
-        raise ValueError("miRAlign requires at least one sequence pair.")
-
-    label_list = np.array(label_list)
 
     if label_prior is not None:
         label_probs = label_prior/np.sum(label_prior, axis=1, keepdims=True)
@@ -139,6 +157,7 @@ def miRAlign(mirna_list, gene_list, label_list,
     auprc_trajectory = []
     loglik_trajectory = []
     subgradient_norm_trajectory = []
+    optimizer_warnings = []
     
     # Optimizing:
     for iter_nb in range(MAX_ITER):
@@ -263,8 +282,13 @@ def miRAlign(mirna_list, gene_list, label_list,
                              jac=eta_fprime,
                              tol=1e-3)
             if z_star.success is False:
+                warning = (
+                    f"Iteration {iter_nb + 1}: label probability optimization failed; "
+                    "kept previous label probabilities."
+                )
+                optimizer_warnings.append(warning)
                 if verbose:
-                    print("Label probability optimization failed; keeping previous label probabilities.")
+                    print(warning)
             else:
                 z_star = z_star['x']
                 # Step 2.4: Transform back to a vector of probabilities of
@@ -309,7 +333,8 @@ def miRAlign(mirna_list, gene_list, label_list,
             'final_loglik': loglik_trajectory[-1],
             'subgradient_norm_trajectory': subgradient_norm_trajectory,
             'final_alignments': alignments,
-            'label_observation_probs': label_probs}
+            'label_observation_probs': label_probs,
+            'optimizer_warnings': optimizer_warnings}
 
 
 # Posterior analysis
