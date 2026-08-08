@@ -35,6 +35,7 @@ from src.optimization_functions import baseline_parameters
 PAIRED_DATASET_SPLITS = {"hejret": ("hejret_train", "hejret_test"), "manakov": ("manakov_train", "manakov_test")}
 SUPPORTED_DATASET_SPLITS = ["hejret_train", "hejret_test", "manakov_train", "manakov_test", "manakov_leftout", "klimentova_test"]
 REQUIRED_EVALUATION_COLUMNS = ["noncodingRNA", "gene", "label"]
+VALID_NUCLEOTIDES = set("ACGT")
 CONFIG_KEYS = [
     "dataset",
     "aligner",
@@ -86,6 +87,39 @@ def parse_named_path(raw_value: str) -> tuple[str, Path]:
     return path.stem, path
 
 
+def normalize_sequence_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    frame = frame.copy()
+    frame["noncodingRNA"] = frame["noncodingRNA"].astype(str).str.upper()
+    frame["gene"] = frame["gene"].astype(str).str.upper()
+    return frame
+
+
+def validate_sequence_frame(frame: pd.DataFrame, split_name: str, *, allow_empty: bool = True) -> None:
+    missing = [column for column in REQUIRED_EVALUATION_COLUMNS if column not in frame.columns]
+    if missing:
+        raise ValueError(f"{split_name} is missing required columns {missing}.")
+    if frame.empty:
+        if allow_empty:
+            return
+        raise ValueError(f"No rows are available in {split_name}.")
+    try:
+        labels = set(frame["label"].astype(int).unique().tolist())
+    except ValueError as exc:
+        raise ValueError(f"{split_name} labels must be binary 0/1 values.") from exc
+    if not labels.issubset({0, 1}):
+        raise ValueError(f"{split_name} labels must be binary 0/1 values; observed {sorted(labels)}.")
+    for column in ["noncodingRNA", "gene"]:
+        bad_mask = ~frame[column].astype(str).str.upper().map(lambda sequence: set(sequence).issubset(VALID_NUCLEOTIDES))
+        if bad_mask.any():
+            first_bad_index = int(frame.index[bad_mask][0])
+            bad_sequence = str(frame.loc[first_bad_index, column])
+            bad_chars = sorted(set(bad_sequence.upper()) - VALID_NUCLEOTIDES)
+            raise ValueError(
+                f"{split_name} column {column!r} contains unsupported nucleotide(s) "
+                f"{bad_chars} at row {first_bad_index}. Only A/C/G/T are supported."
+            )
+
+
 def load_evaluation_file(path: str | Path) -> pd.DataFrame:
     path = Path(path)
     if not path.exists():
@@ -94,7 +128,9 @@ def load_evaluation_file(path: str | Path) -> pd.DataFrame:
     missing = [column for column in REQUIRED_EVALUATION_COLUMNS if column not in frame.columns]
     if missing:
         raise ValueError(f"Evaluation file {path} is missing required columns {missing}.")
-    return frame[REQUIRED_EVALUATION_COLUMNS].copy().reset_index(drop=True)
+    frame = normalize_sequence_columns(frame[REQUIRED_EVALUATION_COLUMNS].copy().reset_index(drop=True))
+    validate_sequence_frame(frame, str(path))
+    return frame
 
 
 def load_custom_evaluation_frames(raw_eval_files: str | None) -> dict[str, pd.DataFrame]:
@@ -318,8 +354,9 @@ def split_train_validation(train_frame: pd.DataFrame, args) -> tuple[pd.DataFram
 
 
 def prepare_inputs(frame: pd.DataFrame):
-    seq_a = frame["noncodingRNA"].astype(str).tolist()
-    seq_b = [str(Seq(seq).reverse_complement()) for seq in frame["gene"].astype(str)]
+    frame = normalize_sequence_columns(frame)
+    seq_a = frame["noncodingRNA"].tolist()
+    seq_b = [str(Seq(seq).reverse_complement()) for seq in frame["gene"]]
     labels = frame["label"].astype(int).tolist()
     return seq_a, seq_b, labels, frame
 
@@ -349,18 +386,24 @@ def load_frames(args):
         invalid = [name for name in split_names if name not in SUPPORTED_DATASET_SPLITS]
         if invalid:
             raise ValueError(f"Invalid evaluation split aliases: {invalid}")
-        raw_evaluation_frames = {name: get_dataset_dataframe(name).reset_index(drop=True) for name in split_names}
+        raw_evaluation_frames = {
+            name: normalize_sequence_columns(get_dataset_dataframe(name).reset_index(drop=True))
+            for name in split_names
+        }
         overlap = sorted(set(raw_evaluation_frames).intersection(custom_evaluation_frames))
         if overlap:
             raise ValueError(f"Custom evaluation names duplicate miRBench split names: {overlap}")
         raw_evaluation_frames.update(custom_evaluation_frames)
+        for name, frame in raw_evaluation_frames.items():
+            validate_sequence_frame(frame, name)
         evaluation_frames = raw_evaluation_frames
         summary_frames.update(raw_evaluation_frames)
     if args.evaluate_only:
         empty_frame = pd.DataFrame(columns=REQUIRED_EVALUATION_COLUMNS)
         return empty_frame, empty_frame, empty_frame, evaluation_frames, summary_frames
 
-    raw_train_frame = get_dataset_dataframe(train_alias).reset_index(drop=True)
+    raw_train_frame = normalize_sequence_columns(get_dataset_dataframe(train_alias).reset_index(drop=True))
+    validate_sequence_frame(raw_train_frame, train_alias, allow_empty=False)
     train_frame = raw_train_frame
     summary_frames[train_alias] = train_frame
     require_training_frame(train_frame, train_alias)
@@ -524,6 +567,44 @@ def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split,
         return {"summary": row, "errors": [row], "metrics": [], "metric_slices": [], "pr_points": [], "roc_points": [], "trajectories": []}
 
 
+def run_final_refit(ranked_row: dict, train_inputs, evaluation_inputs: dict, run_dir: str | Path, final_max_iter: int) -> dict:
+    final_config = {key: ranked_row[key] for key in CONFIG_KEYS}
+    final_config.update({"config_index": 0, "config": f"final_refit_{ranked_row['config']}", "max_iter": final_max_iter})
+    try:
+        result, runtime = fit_configuration(train_inputs, final_config)
+        final_row = summarize_result(final_config, result, runtime)
+        final_model = model_from_result(result, final_config)
+        final_updates, final_metrics, final_metric_slices, final_pr, final_roc = evaluate_model(
+            final_config,
+            final_model,
+            {"train": train_inputs, **evaluation_inputs},
+            Path(run_dir) / "final_refit",
+        )
+        final_row.update(final_updates)
+        final_trajectories = build_trajectory_rows(final_config, result)
+        final_row.update(export_model_artifacts(final_model, final_config, final_row, final_trajectories, Path(run_dir) / "final_refit" / "model"))
+        write_rows(Path(run_dir) / "final_refit" / "summary.csv", [final_row])
+        write_rows(Path(run_dir) / "final_refit" / "metrics.csv", final_metrics)
+        write_rows(Path(run_dir) / "final_refit" / "metric_slices.csv", final_metric_slices)
+        write_rows(Path(run_dir) / "final_refit" / "pr_points.csv", final_pr)
+        write_rows(Path(run_dir) / "final_refit" / "roc_points.csv", final_roc)
+        write_rows(Path(run_dir) / "final_refit" / "trajectory.csv", final_trajectories)
+        return {
+            "summary": final_row,
+            "errors": [],
+            "metrics": final_metrics,
+            "metric_slices": final_metric_slices,
+            "pr_points": final_pr,
+            "roc_points": final_roc,
+            "trajectories": final_trajectories,
+        }
+    except Exception as exc:
+        final_row = {**final_config, "status": "error", "error": repr(exc), "final_loglik": np.nan}
+        print(f"Final refit failed: {final_row['error']}", flush=True)
+        write_rows(Path(run_dir) / "final_refit" / "summary.csv", [final_row])
+        return {"summary": final_row, "errors": [final_row], "metrics": [], "metric_slices": [], "pr_points": [], "roc_points": [], "trajectories": []}
+
+
 def evaluate_existing_model(config: dict, model: dict, inputs_by_split: dict, out_dir: str | Path, summary: dict | None = None) -> dict:
     out_dir = Path(out_dir)
     row = {**config, "status": "ok", "error": ""}
@@ -638,21 +719,9 @@ def main():
             )
             write_json(run_dir / "best_grid_model" / "selected_summary.json", {"selected_from": "grid", "summary": best_evaluation["summary"]})
     if ranked and args.final_max_iter > 0 and not args.skip_evaluation:
-        final_config = {key: ranked[0][key] for key in CONFIG_KEYS}
-        final_config.update({"config_index": 0, "config": f"final_refit_{ranked[0]['config']}", "max_iter": args.final_max_iter})
-        result, runtime = fit_configuration(train_inputs, final_config)
-        final_row = summarize_result(final_config, result, runtime)
-        final_model = model_from_result(result, final_config)
-        final_updates, final_metrics, final_metric_slices, final_pr, final_roc = evaluate_model(final_config, final_model, {"train": train_inputs, **evaluation_inputs}, run_dir / "final_refit")
-        final_row.update(final_updates)
-        final_trajectories = build_trajectory_rows(final_config, result)
-        final_row.update(export_model_artifacts(final_model, final_config, final_row, final_trajectories, run_dir / "final_refit" / "model"))
-        write_rows(run_dir / "final_refit" / "summary.csv", [final_row])
-        write_rows(run_dir / "final_refit" / "metrics.csv", final_metrics)
-        write_rows(run_dir / "final_refit" / "metric_slices.csv", final_metric_slices)
-        write_rows(run_dir / "final_refit" / "pr_points.csv", final_pr)
-        write_rows(run_dir / "final_refit" / "roc_points.csv", final_roc)
-        write_rows(run_dir / "final_refit" / "trajectory.csv", final_trajectories)
+        final_result = run_final_refit(ranked[0], train_inputs, evaluation_inputs, run_dir, args.final_max_iter)
+        if final_result["errors"]:
+            error_rows.extend(final_result["errors"])
 
     write_rows(run_dir / "summary.csv", summary_rows)
     write_rows(run_dir / "errors.csv", error_rows)

@@ -1,11 +1,13 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from case_study_for_mirna.modeling import label_prior_from_name, sample_weight_from_name
 from case_study_for_mirna.case_study_mirna import (
     evaluate_existing_model,
     prepare_inputs,
     split_train_validation,
+    validate_sequence_frame,
     write_dataset_diagnostics,
     write_dataset_summary,
 )
@@ -116,6 +118,29 @@ def test_miralign_one_iteration_with_sample_weights():
     assert np.isfinite(result["final_loglik"])
 
 
+def test_miralign_rejects_mismatched_inputs_and_bad_weights():
+    with pytest.raises(ValueError, match="mirna_list and gene_list"):
+        miRAlign(
+            ["A" * 22],
+            ["T" * 30, "A" * 30],
+            [1],
+            pos_aware_align_local,
+            create_subgradient_step(0.00001, 0.5, 300),
+            MAX_ITER=1,
+        )
+
+    with pytest.raises(ValueError, match="non-negative"):
+        miRAlign(
+            ["A" * 22, "C" * 22],
+            ["T" * 30, "A" * 30],
+            [1, 0],
+            pos_aware_align_local,
+            create_subgradient_step(0.00001, 0.5, 300),
+            sample_weight=np.array([1.0, -1.0]),
+            MAX_ITER=1,
+        )
+
+
 def test_miralign_one_iteration_with_label_prior():
     result = miRAlign(
         ["A" * 22, "C" * 22],
@@ -161,6 +186,33 @@ def test_case_study_label_prior_names():
     assert label_prior_from_name("symmetric_95_5")[0, 0] == 950
     assert label_prior_from_name("symmetric_90_10")[0, 1] == 100
     assert label_prior_from_name("symmetric_80_20")[1, 0] == 200
+
+
+def test_prepare_inputs_normalizes_sequences_and_validation_rejects_ambiguous_bases():
+    frame = pd.DataFrame(
+        {
+            "noncodingRNA": ["acgt"],
+            "gene": ["ttaa"],
+            "label": [1],
+        }
+    )
+
+    seq_a, seq_b, labels, prepared_frame = prepare_inputs(frame)
+
+    assert seq_a == ["ACGT"]
+    assert seq_b == ["TTAA"]
+    assert labels == [1]
+    assert prepared_frame["noncodingRNA"].iloc[0] == "ACGT"
+
+    bad_frame = pd.DataFrame(
+        {
+            "noncodingRNA": ["ACGN"],
+            "gene": ["TTAA"],
+            "label": [1],
+        }
+    )
+    with pytest.raises(ValueError, match="unsupported nucleotide"):
+        validate_sequence_frame(bad_frame, "bad_split")
 
 
 def test_sample_weight_names_balance_entities():
