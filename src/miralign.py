@@ -5,9 +5,9 @@ through a logistic link.
 import numpy as np
 from Bio.Seq import Seq
 from sklearn.metrics import average_precision_score
-from scipy.optimize import minimize
+from scipy.optimize import minimize, minimize_scalar
 from .shared_global_vars import NUCL, NUCL_DICT
-from .likelihood_and_subgradients import logit_logl, logit_derivative_alpha, logit_derivative_label_probs
+from .likelihood_and_subgradients import _sigmoid, logit_logl, logit_derivative_alpha, logit_derivative_label_probs
 from .optimization_functions import logreg_starting_point
 from math import ceil
 
@@ -35,6 +35,32 @@ def _pair_chunks(mirna_list, gene_list, chunk_size):
     for start in range(0, pair_count, chunk_size):
         stop = min(start + chunk_size, pair_count)
         yield zip(mirna_list[start:stop], gene_list[start:stop])
+
+
+def _validate_miralign_inputs(mirna_list, gene_list, label_list):
+    if len(mirna_list) != len(gene_list):
+        raise ValueError(
+            "mirna_list and gene_list must have the same length; "
+            f"got {len(mirna_list)} and {len(gene_list)}."
+        )
+    if len(mirna_list) != len(label_list):
+        raise ValueError(
+            "mirna_list and label_list must have the same length; "
+            f"got {len(mirna_list)} and {len(label_list)}."
+        )
+    if len(mirna_list) == 0:
+        raise ValueError("miRAlign requires at least one sequence pair.")
+    miRNA_lengths = {len(mirna) for mirna in mirna_list}
+    if len(miRNA_lengths) != 1:
+        raise ValueError(
+            "miRNA sequences need to have the same length; "
+            f"observed lengths {sorted(miRNA_lengths)}."
+        )
+    labels = np.asarray(label_list)
+    observed_labels = set(labels.tolist())
+    if not observed_labels.issubset({0, 1, False, True}):
+        raise ValueError(f"Labels must be binary 0/1 values; observed {sorted(observed_labels)}.")
+    return miRNA_lengths.pop(), labels.astype(int)
 
 
 def miRAlign(mirna_list, gene_list, label_list,
@@ -71,14 +97,8 @@ def miRAlign(mirna_list, gene_list, label_list,
     Returns:
     Substution matrix and gap penalties.
     """
-    miRNA_length = set(len(mirna) for mirna in mirna_list)
-    assert len(miRNA_length) == 1, 'miRNA sequences need to have the same length'
-    miRNA_length = miRNA_length.pop()
-    assert len(mirna_list) == len(gene_list)
-    assert len(mirna_list) == len(label_list)
+    miRNA_length, label_list = _validate_miralign_inputs(mirna_list, gene_list, label_list)
     pair_count = len(mirna_list)
-
-    label_list = np.array(label_list)
 
     if label_prior is not None:
         label_probs = label_prior/np.sum(label_prior, axis=1, keepdims=True)
@@ -98,6 +118,18 @@ def miRAlign(mirna_list, gene_list, label_list,
     G_miR = starting_point['G_miR']
     G_gene = starting_point['G_gene']
     alpha = starting_point['alpha']
+    if M.shape != (4, 4, miRNA_length):
+        raise ValueError(f"M must have shape (4, 4, {miRNA_length}); got {M.shape}.")
+    if G_miR.shape != (miRNA_length - 1,):
+        raise ValueError(f"G_miR must have shape ({miRNA_length - 1},); got {G_miR.shape}.")
+    if G_gene.shape != (miRNA_length,):
+        raise ValueError(f"G_gene must have shape ({miRNA_length},); got {G_gene.shape}.")
+    if M_prior is not None and M_prior.shape != M.shape:
+        raise ValueError(f"M_prior must have shape {M.shape}; got {M_prior.shape}.")
+    if G_miR_prior is not None and G_miR_prior.shape != G_miR.shape:
+        raise ValueError(f"G_miR_prior must have shape {G_miR.shape}; got {G_miR_prior.shape}.")
+    if G_gene_prior is not None and G_gene_prior.shape != G_gene.shape:
+        raise ValueError(f"G_gene_prior must have shape {G_gene.shape}; got {G_gene_prior.shape}.")
     if verbose:
         print('Initial alpha:', alpha)
 
@@ -125,6 +157,7 @@ def miRAlign(mirna_list, gene_list, label_list,
     auprc_trajectory = []
     loglik_trajectory = []
     subgradient_norm_trajectory = []
+    optimizer_warnings = []
     
     # Optimizing:
     for iter_nb in range(MAX_ITER):
@@ -189,14 +222,33 @@ def miRAlign(mirna_list, gene_list, label_list,
             return  -logit_derivative_alpha(scores_pos, scores_neg,
                                             x,
                                             label_probs)
-        alpha = minimize(alpha_target,
-                         alpha,
-                         jac=alpha_fprime,
-                         tol=1e-3)
-        if alpha.success is False:
-            raise RuntimeError('Estimation of the intercept failed. Try decreasing the step size. If the problem persists, let me know about this.')
+        alpha_previous = float(np.asarray(alpha).ravel()[0])
+        alpha_star = minimize(alpha_target,
+                              alpha_previous,
+                              jac=alpha_fprime,
+                              tol=1e-3)
+        if alpha_star.success is False:
+            fallback = minimize_scalar(
+                lambda x: alpha_target(float(x)),
+                bounds=(-50, 50),
+                method="bounded",
+                options={"xatol": 1e-3},
+            )
+            if fallback.success is False:
+                raise RuntimeError(
+                    "Estimation of the intercept failed with both gradient and bounded scalar optimizers. "
+                    "Try using fewer label-prior configurations or inspect score scaling."
+                )
+            alpha = float(fallback.x)
+            warning = (
+                f"Iteration {iter_nb + 1}: alpha gradient optimization failed; "
+                "used bounded scalar fallback."
+            )
+            optimizer_warnings.append(warning)
+            if verbose:
+                print(warning)
         else:
-            alpha = alpha['x'][0]
+            alpha = alpha_star['x'][0]
         if verbose:
             print("Updated alpha:", alpha)
 
@@ -213,7 +265,7 @@ def miRAlign(mirna_list, gene_list, label_list,
                 Target for optimization of label observation probabilities;
                 z = vector of logit-transformed probabilities of correct labels
                 """
-                x = 1/(1+np.exp(-z))
+                x = _sigmoid(z)
                 prob_array = np.array([[x[0], 1-x[0]], [1-x[1], x[1]]])
                 return -logit_logl(scores_pos=scores_pos,
                                    scores_neg=scores_neg,
@@ -233,7 +285,7 @@ def miRAlign(mirna_list, gene_list, label_list,
                 Jacobian for optimization of label observation probabilities;
                 z = vector of logit-transformed probabilities of correct labels
                 """
-                x = 1/(1+np.exp(-z))
+                x = _sigmoid(z)
                 prob_array = np.array([[x[0], 1-x[0]], [1-x[1], x[1]]])
                 dL_dx = -logit_derivative_label_probs(scores_pos=scores_pos,
                                    scores_neg=scores_neg,
@@ -249,16 +301,22 @@ def miRAlign(mirna_list, gene_list, label_list,
                              jac=eta_fprime,
                              tol=1e-3)
             if z_star.success is False:
-                raise RuntimeError('Estimation of label probabilities failed. Try decreasing the step size. If the problem persists, let me know about this.')
+                warning = (
+                    f"Iteration {iter_nb + 1}: label probability optimization failed; "
+                    "kept previous label probabilities."
+                )
+                optimizer_warnings.append(warning)
+                if verbose:
+                    print(warning)
             else:
                 z_star = z_star['x']
-            # Step 2.4: Transform back to a vector of probabilities of
-            # observing correct labels, fill the label_prob array
-            correct_label_probs = 1/(1+np.exp(-z_star))
-            label_probs = np.array([[correct_label_probs[0], 1-correct_label_probs[0]],
-                                    [1-correct_label_probs[1], correct_label_probs[1]]])
-            if verbose:
-                print("Updated probs of correct labels:", correct_label_probs)
+                # Step 2.4: Transform back to a vector of probabilities of
+                # observing correct labels, fill the label_prob array
+                correct_label_probs = _sigmoid(z_star)
+                label_probs = np.array([[correct_label_probs[0], 1-correct_label_probs[0]],
+                                        [1-correct_label_probs[1], correct_label_probs[1]]])
+                if verbose:
+                    print("Updated probs of correct labels:", correct_label_probs)
                 
         # Step 3: optimizing matrices - subgradient step        
         step_theta = step_function(iter_nb = iter_nb,
@@ -294,7 +352,8 @@ def miRAlign(mirna_list, gene_list, label_list,
             'final_loglik': loglik_trajectory[-1],
             'subgradient_norm_trajectory': subgradient_norm_trajectory,
             'final_alignments': alignments,
-            'label_observation_probs': label_probs}
+            'label_observation_probs': label_probs,
+            'optimizer_warnings': optimizer_warnings}
 
 
 # Posterior analysis
@@ -317,5 +376,3 @@ def get_label_posteriors(scores, labels, alpha,
     posterior /= np.sum(posterior, axis=0)
     posterior = posterior.T
     return posterior
-
-
