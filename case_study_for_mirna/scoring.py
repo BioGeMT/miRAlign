@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+from math import ceil
+
+import numpy as np
+from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score, roc_curve
+
+
+def _score_pair(seq_a, seq_b, aligner, M, G_miR, G_gene):
+    return aligner(seq_a, seq_b, M, G_miR, G_gene, backtrack=False)[0]
+
+
+def _score_pair_chunk(pair_chunk, aligner, M, G_miR, G_gene):
+    return [_score_pair(seq_a, seq_b, aligner, M, G_miR, G_gene) for seq_a, seq_b in pair_chunk]
+
+
+def _pair_chunks(seqlist_a, seqlist_b, chunk_size):
+    pair_count = len(seqlist_a)
+    for start in range(0, pair_count, chunk_size):
+        stop = min(start + chunk_size, pair_count)
+        yield list(zip(seqlist_a[start:stop], seqlist_b[start:stop]))
+
+
+def score_pairs_with_model(seqlist_a, seqlist_b, model, num_threads=1):
+    pair_count = len(seqlist_a)
+    aligner = model["aligner"]
+    M = model["M"]
+    G_miR = model["G_miR"]
+    G_gene = model["G_gene"]
+    if num_threads == 1 or pair_count == 0:
+        scores = [_score_pair(seq_a, seq_b, aligner, M, G_miR, G_gene) for seq_a, seq_b in zip(seqlist_a, seqlist_b)]
+    else:
+        from joblib import Parallel, delayed
+
+        n_jobs = min(int(num_threads), pair_count)
+        chunk_size = max(1, ceil(pair_count / (n_jobs * 4)))
+        chunked_scores = Parallel(n_jobs=n_jobs, prefer="processes", return_as="list")(
+            delayed(_score_pair_chunk)(pair_chunk, aligner, M, G_miR, G_gene)
+            for pair_chunk in _pair_chunks(seqlist_a, seqlist_b, chunk_size)
+        )
+        scores = [score for chunk in chunked_scores for score in chunk]
+    return np.asarray(scores, dtype=float) + float(model["alpha"])
+
+
+def empty_evaluation():
+    return {
+        "average_precision": np.nan,
+        "roc_auc": np.nan,
+        "precision": np.array([]),
+        "recall": np.array([]),
+        "pr_thresholds": np.array([]),
+        "fpr": np.array([]),
+        "tpr": np.array([]),
+        "roc_thresholds": np.array([]),
+    }
+
+
+def evaluate_scores(labels, scores):
+    labels = np.asarray(labels, dtype=int)
+    scores = np.asarray(scores, dtype=float)
+    if scores.size == 0 or not np.isfinite(scores).all():
+        return empty_evaluation()
+    if np.unique(labels).size < 2:
+        result = empty_evaluation()
+        result["average_precision"] = float(np.mean(labels))
+        return result
+    precision, recall, pr_thresholds = precision_recall_curve(labels, scores)
+    average_precision = average_precision_score(labels, scores)
+    try:
+        roc_auc = roc_auc_score(labels, scores)
+        fpr, tpr, roc_thresholds = roc_curve(labels, scores)
+    except ValueError:
+        roc_auc = np.nan
+        fpr = np.array([])
+        tpr = np.array([])
+        roc_thresholds = np.array([])
+    return {
+        "average_precision": float(average_precision),
+        "roc_auc": float(roc_auc) if np.isfinite(roc_auc) else np.nan,
+        "precision": precision,
+        "recall": recall,
+        "pr_thresholds": pr_thresholds,
+        "fpr": fpr,
+        "tpr": tpr,
+        "roc_thresholds": roc_thresholds,
+    }

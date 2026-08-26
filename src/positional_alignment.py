@@ -20,7 +20,6 @@ def pos_aware_align_local_numba(miR_int, mR_int, M, G_miR, G_gene, backtrack=Fal
     to the coordinate at miR sequence. 
     """
     n, m = len(miR_int), len(mR_int)
-    assert n == 22
     score_matrix = np.zeros((n + 1, m + 1), dtype=np.float32)
     best_score = 0.
     best_score_i = 0
@@ -152,6 +151,13 @@ def pos_aware_align_glocal_numba(miR_int, mR_int, M, G_miR, G_gene, backtrack=Fa
     if backtrack:
         i, j = n, j_star
         while i > 0:
+            if j == 0:
+                align_miR.append(miR_int[i - 1])
+                align_mR.append(4)
+                seq_idx_miR.append(i - 1)
+                seq_idx_mR.append(-1)
+                i -= 1
+                continue
             d = bt[i, j]
             if d == 1:  # DIAG
                 align_miR.append(miR_int[i - 1])
@@ -219,8 +225,8 @@ def pos_aware_align_glocal(miR, mR, M, G_miR, G_gene, backtrack=False):
     S, align_miR, align_mR, crdmir, crdgene = pos_aware_align_glocal_numba(A_int, B_int, 
                                                                           M, G_miR, G_gene, 
                                                                           backtrack=backtrack)
-    align_mR = [NUCL[i] for i in align_mR]
-    align_miR = [NUCL[i] for i in align_miR]
+    align_mR = [NUCL_WGAP[i] for i in align_mR]
+    align_miR = [NUCL_WGAP[i] for i in align_miR]
     return(S, align_miR, align_mR, crdmir, crdgene)
 
 
