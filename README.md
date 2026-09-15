@@ -87,3 +87,50 @@ DiscrimAlign references used by the case study:
   penalties for pairwise alignment of biological sequences",
   https://doi.org/10.64898/2026.05.14.725168
 - DiscrimAlign GitHub repository: https://github.com/BioGeMT/DiscrimAlign/
+
+## Reusable estimator API
+
+`MiRAlign` provides a scikit-learn compatible binary classifier while reusing
+the existing miRAlign optimizer and position-aware alignment implementation.
+Training data are passed as paired sequences with shape `(n_samples, 2)`: miRNA
+in the first column and target sequence in the second.
+
+```python
+import numpy as np
+from src import MiRAlign
+
+X = np.array([
+    ["AAAA", "AAAAAAAA"],
+    ["CCCC", "CCCCCCCC"],
+    ["AAAA", "TTTTTTTT"],
+    ["CCCC", "AAAAAAAA"],
+], dtype=object)
+y = np.array([1, 1, 0, 0])
+
+model = MiRAlign(
+    aligner="local",
+    max_iter=100,
+    tol=1e-3,
+)
+model.fit(X, y)
+
+scores = model.decision_function(X)
+probabilities = model.predict_proba(X)
+predictions = model.predict(X)
+```
+
+A fitted estimator exposes `M_`, `G_miR_`, `G_gene_`, `alpha_`, and
+`model_length_`, plus optimization diagnostics such as `n_iter_`, `converged_`,
+and the likelihood/subgradient trajectories. Mixed-length training remains the
+same as the core implementation: parameters are allocated to the longest miRNA,
+while shorter miRNAs use only their real positions.
+
+`tol` is now an actual convergence criterion for the outer optimization loop.
+The estimator defaults to `tol=1e-3`; set `tol=None` to run exactly `max_iter`
+iterations. The low-level `miRAlign(...)` function defaults to `tol=None` so
+existing workflows that did not explicitly use tolerance preserve their previous
+fixed-iteration behavior.
+
+The estimator follows the standard scikit-learn parameter protocol, so it can be
+cloned and used with model-selection tools such as `GridSearchCV`. `fit` also
+accepts `sample_weight`. Fitted models can be serialized with `pickle`.

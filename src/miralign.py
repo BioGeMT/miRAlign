@@ -101,7 +101,7 @@ def miRAlign(mirna_list, gene_list, label_list,
              label_prior = None,
              model_length = None,
              sample_weight = None,
-             MAX_ITER=100, tol=1e-3,
+             MAX_ITER=100, tol=None,
              num_threads=1,
              verbose=False):
     """
@@ -109,20 +109,23 @@ def miRAlign(mirna_list, gene_list, label_list,
 
     ----
     Parameters:
-    mirna_list: list of miRNA sequences.
-        All sequences need to have the same length equal n > 0.
+    mirna_list: list of non-empty miRNA sequences. Mixed lengths are supported.
+        The longest sequence defines the model length when model_length is None.
     gene_list: list of target sequences
     label_list: list of binary labels (0/1 or False/True) 
     aligner: An alignment function from positional_alignment.py.
     step_function: A function to calculate optimization step lengths.
-    M_prior: prior on the substitution matrix, with shape nx16x16, n=length of miRNA
+    M_prior: prior on the substitution matrix, with shape 4x4xn, n=model length
     G_miR_prior: prior on gap penalties between miRNA nucleotides, length n-1
     G_gene_prior: prior on miRNA bulges (gaps in gene), length n
     prior_precision: inverse of the standard deviation of prior distribution,
         often referred to as "lambda"
     label_prior: 2x2 matrix of prior parameters for mislabeling probabilities.
         label_prior[i, j] is the number of "previously observed" instances with
-        true label i and observed label j.  
+        true label i and observed label j.
+    tol: non-negative float or None.
+        Stop when the combined parameter subgradient norm is at most tol. None
+        preserves the historical behavior of running all MAX_ITER iterations.
     
     ----
     Returns:
@@ -136,6 +139,14 @@ def miRAlign(mirna_list, gene_list, label_list,
         sample_weight,
     )
     pair_count = len(mirna_list)
+
+    if tol is None:
+        optimizer_tol = 1e-3
+    else:
+        tol = float(tol)
+        if not np.isfinite(tol) or tol < 0:
+            raise ValueError("tol must be a finite non-negative number or None.")
+        optimizer_tol = max(tol, np.finfo(float).eps)
 
     if label_prior is not None:
         label_probs = label_prior/np.sum(label_prior, axis=1, keepdims=True)
@@ -196,6 +207,7 @@ def miRAlign(mirna_list, gene_list, label_list,
     loglik_trajectory = []
     subgradient_norm_trajectory = []
     optimizer_warnings = []
+    converged = False
     
     # Optimizing:
     for iter_nb in range(MAX_ITER):
@@ -272,13 +284,13 @@ def miRAlign(mirna_list, gene_list, label_list,
         alpha_star = minimize(alpha_target,
                               alpha_previous,
                               jac=alpha_fprime,
-                              tol=1e-3)
+                              tol=optimizer_tol)
         if alpha_star.success is False:
             fallback = minimize_scalar(
                 lambda x: alpha_target(float(x)),
                 bounds=(-50, 50),
                 method="bounded",
-                options={"xatol": 1e-3},
+                options={"xatol": optimizer_tol},
             )
             if fallback.success is False:
                 raise RuntimeError(
@@ -349,7 +361,7 @@ def miRAlign(mirna_list, gene_list, label_list,
             z_star = minimize(eta_target,
                              z0,
                              jac=eta_fprime,
-                             tol=1e-3)
+                             tol=optimizer_tol)
             if z_star.success is False:
                 warning = (
                     f"Iteration {iter_nb + 1}: label probability optimization failed; "
@@ -392,11 +404,21 @@ def miRAlign(mirna_list, gene_list, label_list,
         M_subgradient_norm = np.linalg.norm(step_theta['M_subgradient'])
         G_miR_subgradient_norm = np.linalg.norm(step_theta['G_miR_subgradient'])
         G_gene_subgradient_norm = np.linalg.norm(step_theta['G_gene_subgradient'])
-        subgradient_norm_trajectory.append(np.sqrt(M_subgradient_norm**2 + G_miR_subgradient_norm**2 + G_gene_subgradient_norm**2))
+        subgradient_norm = np.sqrt(
+            M_subgradient_norm**2
+            + G_miR_subgradient_norm**2
+            + G_gene_subgradient_norm**2
+        )
+        subgradient_norm_trajectory.append(subgradient_norm)
         if verbose:
             print('M subgradient norm:', M_subgradient_norm)
             print('G_miR subgradient norm:', G_miR_subgradient_norm)
             print('G_gene subgradient norm:', G_gene_subgradient_norm)
+        if tol is not None and subgradient_norm <= tol:
+            converged = True
+            if verbose:
+                print(f'Converged at iteration {iter_nb + 1}: subgradient norm <= {tol}.')
+            break
             
     return {'G_miR': G_miR, 'G_gene': G_gene, 'M': M, 'alpha': alpha,
             'auprc_trajectory': auprc_trajectory,
@@ -405,7 +427,9 @@ def miRAlign(mirna_list, gene_list, label_list,
             'subgradient_norm_trajectory': subgradient_norm_trajectory,
             'final_alignments': alignments,
             'label_observation_probs': label_probs,
-            'optimizer_warnings': optimizer_warnings}
+            'optimizer_warnings': optimizer_warnings,
+            'n_iter': len(subgradient_norm_trajectory),
+            'converged': converged}
 
 
 # Posterior analysis
