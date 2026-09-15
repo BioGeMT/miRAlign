@@ -175,7 +175,7 @@ miRAlign/
 ├── src/                       core miRAlign model and estimator API
 ├── examples/                  small runnable usage examples
 ├── case_study_for_mirna/      miRBench case-study workflow and documentation
-├── tests/                     core and estimator tests
+├── tests/                     existing core regression tests
 ├── results/                   generated experiment outputs
 ├── *.ipynb                    development notebooks
 ├── pyproject.toml             Python project metadata and dependencies

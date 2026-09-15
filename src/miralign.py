@@ -140,13 +140,14 @@ def miRAlign(mirna_list, gene_list, label_list,
     )
     pair_count = len(mirna_list)
 
-    if tol is None:
-        optimizer_tol = 1e-3
-    else:
+    # ``tol`` controls only the outer miRAlign stopping rule. Keep the
+    # historical SciPy tolerance for the inner alpha/label optimizations so
+    # changing outer convergence does not silently change those subproblems.
+    optimizer_tol = 1e-3
+    if tol is not None:
         tol = float(tol)
         if not np.isfinite(tol) or tol < 0:
             raise ValueError("tol must be a finite non-negative number or None.")
-        optimizer_tol = max(tol, np.finfo(float).eps)
 
     if label_prior is not None:
         label_probs = label_prior/np.sum(label_prior, axis=1, keepdims=True)
