@@ -35,8 +35,10 @@ def _split_sequence_pairs(X):
     for index, (mirna, gene) in enumerate(pairs):
         if not isinstance(mirna, str) or not isinstance(gene, str):
             raise TypeError(f"X row {index} must contain two sequence strings.")
-        mirna = mirna.upper()
-        gene = gene.upper()
+        # miRNA/target inputs may be provided in RNA notation. The core
+        # positional aligners use the A/C/G/T alphabet, so U is equivalent to T.
+        mirna = mirna.upper().replace("U", "T")
+        gene = gene.upper().replace("U", "T")
         if not mirna or not gene:
             raise ValueError(f"X row {index} contains an empty sequence.")
         invalid = (set(mirna) | set(gene)) - _ALLOWED_NUCLEOTIDES
@@ -71,7 +73,9 @@ class MiRAlignClassifier(ClassifierMixin, BaseEstimator):
     prediction protocol without duplicating the alignment model.
 
     ``X`` must have shape ``(n_samples, 2)`` with miRNA sequences in column 0
-    and target sequences in column 1. Mixed miRNA lengths are supported. If
+    and target sequences in column 1. Input is case-insensitive and RNA ``U`` is
+    normalized to ``T`` for the underlying A/C/G/T alignment alphabet. Mixed
+    miRNA lengths are supported. If
     ``model_length`` is omitted, the longest miRNA seen during ``fit`` defines
     the learned parameter length, exactly as in the core implementation.
     """
